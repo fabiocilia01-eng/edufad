@@ -1,0 +1,2866 @@
+ (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..36a7e8d325273fb10b1c5a6a6cf00cf87ab65db4
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,79 @@
++# EduFAD
++**EduFAD** — Strumento educativo per il funzionamento adattivo.
++
++> Disclaimer: strumento educativo/osservativo, non diagnostico o terapeutico.
++
++## Funzionalità principali
++- Gestione multi-utente con ruoli (admin/editor).
++- Profili studenti e valutazioni con soft-delete.
++- Dashboard con grafici Canvas e “obiettivi condivisi”.
++- Export PDF/CSV per valutazioni, dashboard item e piani educativi.
++- Audit log per azioni critiche.
++
++## Requisiti
++- Python 3.11+
++- PostgreSQL (per produzione) oppure SQLite (sviluppo rapido)
++
++## Avvio locale
++```bash
++cd backend
++python -m venv .venv
++source .venv/bin/activate
++pip install -r requirements.txt
++export DATABASE_URL="sqlite:///./edufad.db"
++export SECRET_KEY="sviluppo-change-me"
++uvicorn app.main:app --reload
++```
++
++Visita `http://localhost:8000`.
++
++### Utente admin iniziale
++Alla prima esecuzione viene creato un admin usando:
++```
++ADMIN_USERNAME / ADMIN_PASSWORD
++```
++Se non impostati: `admin / admin123` (**consigliato modificare**).
++
++### Creare utenti editor
++Solo admin può creare utenti:
++```
++POST /api/users
++{
++  "username": "editor1",
++  "password": "passwordSicura",
++  "role": "editor"
++}
++```
++
++### Ripristino valutazioni eliminate
++Admin può usare:
++```
++POST /api/assessments/{id}/restore
++```
++e abilitare il filtro “show deleted” per vedere le valutazioni eliminate.
++
++## Deployment su Render.com (click-by-click)
++1. Crea un nuovo progetto su Render.
++2. Aggiungi un **PostgreSQL** managed database. Copia la `DATABASE_URL`.
++3. Crea un nuovo **Web Service**:
++   - Repo: questo repository.
++   - Runtime: Python.
++   - Build Command: `pip install -r backend/requirements.txt`
++   - Start Command: `uvicorn app.main:app --host 0.0.0.0 --port 10000`
++4. Imposta le environment variables:
++   - `DATABASE_URL` (dal database Render)
++   - `SECRET_KEY` (stringa lunga e casuale)
++   - `ADMIN_USERNAME` e `ADMIN_PASSWORD` (opzionali)
++5. Deploy.
++
++## Migrazioni
++```
++cd backend
++alembic -c alembic.ini upgrade head
++```
++
++## Test minimi
++```
++cd backend
++pytest
++```
+diff --git a/backend/alembic.ini b/backend/alembic.ini
+new file mode 100644
+index 0000000000000000000000000000000000000000..1cea93fed854949d3594bb76a5f4a2ab97976314
+--- /dev/null
++++ b/backend/alembic.ini
+@@ -0,0 +1,35 @@
++[alembic]
++script_location = backend/alembic
++sqlalchemy.url = sqlite:///./edufad.db
++
++[loggers]
++keys = root,sqlalchemy,alembic
++
++[handlers]
++keys = console
++
++[formatters]
++keys = generic
++
++[logger_root]
++level = WARN
++handlers = console
++
++[logger_sqlalchemy]
++level = WARN
++handlers =
++qualname = sqlalchemy.engine
++
++[logger_alembic]
++level = INFO
++handlers =
++qualname = alembic
++
++[handler_console]
++class = StreamHandler
++args = (sys.stderr,)
++level = NOTSET
++formatter = generic
++
++[formatter_generic]
++format = %(levelname)-5.5s [%(name)s] %(message)s
+diff --git a/backend/alembic/env.py b/backend/alembic/env.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..3859dfc453602f42aeb07820a3be2ee209324318
+--- /dev/null
++++ b/backend/alembic/env.py
+@@ -0,0 +1,54 @@
++from logging.config import fileConfig
++
++from sqlalchemy import engine_from_config, pool
++
++from alembic import context
++
++from backend.app.config import get_settings
++from backend.app.database import Base
++from backend.app import models
++
++
++config = context.config
++
++if config.config_file_name is not None:
++    fileConfig(config.config_file_name)
++
++target_metadata = Base.metadata
++
++
++def get_url():
++    return get_settings().database_url
++
++
++def run_migrations_offline():
++    url = get_url()
++    context.configure(
++        url=url,
++        target_metadata=target_metadata,
++        literal_binds=True,
++        compare_type=True,
++    )
++
++    with context.begin_transaction():
++        context.run_migrations()
++
++
++def run_migrations_online():
++    connectable = engine_from_config(
++        {"sqlalchemy.url": get_url()},
++        prefix="sqlalchemy.",
++        poolclass=pool.NullPool,
++    )
++
++    with connectable.connect() as connection:
++        context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
++
++        with context.begin_transaction():
++            context.run_migrations()
++
++
++if context.is_offline_mode():
++    run_migrations_offline()
++else:
++    run_migrations_online()
+diff --git a/backend/alembic/versions/0001_initial.py b/backend/alembic/versions/0001_initial.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..b11dbeb5ea1c938e21d6ccb8ee355289d1e693e0
+--- /dev/null
++++ b/backend/alembic/versions/0001_initial.py
+@@ -0,0 +1,185 @@
++"""initial
++
++Revision ID: 0001_initial
++Revises: 
++Create Date: 2025-02-14 00:00:00
++"""
++
++from alembic import op
++import sqlalchemy as sa
++
++
++revision = "0001_initial"
++down_revision = None
++branch_labels = None
++depends_on = None
++
++
++def upgrade():
++    op.create_table(
++        "users",
++        sa.Column("id", sa.Integer(), nullable=False),
++        sa.Column("username", sa.String(length=50), nullable=False),
++        sa.Column("password_hash", sa.String(length=255), nullable=False),
++        sa.Column("role", sa.String(length=20), nullable=False),
++        sa.Column("is_active", sa.Boolean(), nullable=False),
++        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
++        sa.Column("disclaimer_ack_at", sa.DateTime(timezone=True), nullable=True),
++        sa.PrimaryKeyConstraint("id"),
++    )
++    op.create_index(op.f("ix_users_username"), "users", ["username"], unique=True)
++
++    op.create_table(
++        "profiles",
++        sa.Column("id", sa.Integer(), nullable=False),
++        sa.Column("code", sa.String(length=32), nullable=False),
++        sa.Column("display_name", sa.String(length=150), nullable=False),
++        sa.Column("date_of_birth", sa.Date(), nullable=False),
++        sa.Column("notes", sa.Text(), nullable=True),
++        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
++        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
++        sa.PrimaryKeyConstraint("id"),
++    )
++    op.create_index(op.f("ix_profiles_code"), "profiles", ["code"], unique=True)
++
++    op.create_table(
++        "assessments",
++        sa.Column("id", sa.Integer(), nullable=False),
++        sa.Column("profile_id", sa.Integer(), nullable=False),
++        sa.Column("assessment_date", sa.Date(), nullable=False),
++        sa.Column("created_by_id", sa.Integer(), nullable=False),
++        sa.Column("updated_by_id", sa.Integer(), nullable=True),
++        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
++        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
++        sa.Column("operator_name", sa.String(length=150), nullable=False),
++        sa.Column("operator_role", sa.String(length=80), nullable=False),
++        sa.Column("present_user_ids", sa.JSON(), nullable=True),
++        sa.Column("present_other", sa.Text(), nullable=True),
++        sa.Column("session_notes", sa.Text(), nullable=True),
++        sa.Column("status", sa.String(length=20), nullable=False),
++        sa.Column("is_deleted", sa.Boolean(), nullable=False),
++        sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
++        sa.Column("deleted_by_id", sa.Integer(), nullable=True),
++        sa.ForeignKeyConstraint(["created_by_id"], ["users.id"]),
++        sa.ForeignKeyConstraint(["deleted_by_id"], ["users.id"]),
++        sa.ForeignKeyConstraint(["profile_id"], ["profiles.id"]),
++        sa.ForeignKeyConstraint(["updated_by_id"], ["users.id"]),
++        sa.PrimaryKeyConstraint("id"),
++    )
++
++    op.create_table(
++        "responses",
++        sa.Column("id", sa.Integer(), nullable=False),
++        sa.Column("assessment_id", sa.Integer(), nullable=False),
++        sa.Column("item_id", sa.String(length=20), nullable=False),
++        sa.Column("support", sa.Integer(), nullable=False),
++        sa.Column("freq", sa.String(length=10), nullable=True),
++        sa.Column("gen", sa.String(length=10), nullable=True),
++        sa.Column("context", sa.Text(), nullable=True),
++        sa.Column("note", sa.Text(), nullable=True),
++        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
++        sa.Column("updated_by_id", sa.Integer(), nullable=False),
++        sa.ForeignKeyConstraint(["assessment_id"], ["assessments.id"]),
++        sa.ForeignKeyConstraint(["updated_by_id"], ["users.id"]),
++        sa.PrimaryKeyConstraint("id"),
++        sa.UniqueConstraint("assessment_id", "item_id", name="uq_assessment_item"),
++    )
++
++    op.create_table(
++        "summaries",
++        sa.Column("id", sa.Integer(), nullable=False),
++        sa.Column("assessment_id", sa.Integer(), nullable=False),
++        sa.Column("auto_text", sa.Text(), nullable=False),
++        sa.Column("manual_text", sa.Text(), nullable=True),
++        sa.Column("manual_edited_at", sa.DateTime(timezone=True), nullable=True),
++        sa.Column("last_generated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
++        sa.ForeignKeyConstraint(["assessment_id"], ["assessments.id"]),
++        sa.PrimaryKeyConstraint("id"),
++        sa.UniqueConstraint("assessment_id"),
++    )
++
++    op.create_table(
++        "plans",
++        sa.Column("id", sa.Integer(), nullable=False),
++        sa.Column("assessment_id", sa.Integer(), nullable=False),
++        sa.Column("version", sa.Integer(), nullable=False),
++        sa.Column("generated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
++        sa.Column("generated_by_id", sa.Integer(), nullable=False),
++        sa.Column("content_json", sa.Text(), nullable=False),
++        sa.Column("content_text", sa.Text(), nullable=False),
++        sa.Column("is_active", sa.Boolean(), nullable=False),
++        sa.ForeignKeyConstraint(["assessment_id"], ["assessments.id"]),
++        sa.ForeignKeyConstraint(["generated_by_id"], ["users.id"]),
++        sa.PrimaryKeyConstraint("id"),
++    )
++
++    op.create_table(
++        "work_groups",
++        sa.Column("id", sa.Integer(), nullable=False),
++        sa.Column("title", sa.String(length=150), nullable=False),
++        sa.Column("item_id", sa.String(length=20), nullable=False),
++        sa.Column("area_id", sa.String(length=50), nullable=False),
++        sa.Column("support_min", sa.Integer(), nullable=False),
++        sa.Column("support_max", sa.Integer(), nullable=False),
++        sa.Column("created_by_id", sa.Integer(), nullable=False),
++        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
++        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
++        sa.Column("start_date", sa.Date(), nullable=True),
++        sa.Column("end_date", sa.Date(), nullable=True),
++        sa.Column("notes", sa.Text(), nullable=True),
++        sa.Column("status", sa.String(length=20), nullable=False),
++        sa.ForeignKeyConstraint(["created_by_id"], ["users.id"]),
++        sa.PrimaryKeyConstraint("id"),
++    )
++
++    op.create_table(
++        "group_members",
++        sa.Column("id", sa.Integer(), nullable=False),
++        sa.Column("group_id", sa.Integer(), nullable=False),
++        sa.Column("profile_id", sa.Integer(), nullable=False),
++        sa.Column("last_support", sa.Integer(), nullable=True),
++        sa.Column("last_assessment_date", sa.Date(), nullable=True),
++        sa.ForeignKeyConstraint(["group_id"], ["work_groups.id"]),
++        sa.ForeignKeyConstraint(["profile_id"], ["profiles.id"]),
++        sa.PrimaryKeyConstraint("id"),
++        sa.UniqueConstraint("group_id", "profile_id", name="uq_group_profile"),
++    )
++
++    op.create_table(
++        "group_assignees",
++        sa.Column("id", sa.Integer(), nullable=False),
++        sa.Column("group_id", sa.Integer(), nullable=False),
++        sa.Column("user_id", sa.Integer(), nullable=False),
++        sa.ForeignKeyConstraint(["group_id"], ["work_groups.id"]),
++        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
++        sa.PrimaryKeyConstraint("id"),
++        sa.UniqueConstraint("group_id", "user_id", name="uq_group_user"),
++    )
++
++    op.create_table(
++        "audit_logs",
++        sa.Column("id", sa.Integer(), nullable=False),
++        sa.Column("user_id", sa.Integer(), nullable=True),
++        sa.Column("action", sa.String(length=50), nullable=False),
++        sa.Column("entity_type", sa.String(length=50), nullable=False),
++        sa.Column("entity_id", sa.Integer(), nullable=True),
++        sa.Column("details", sa.Text(), nullable=True),
++        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
++        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
++        sa.PrimaryKeyConstraint("id"),
++    )
++
++
++def downgrade():
++    op.drop_table("audit_logs")
++    op.drop_table("group_assignees")
++    op.drop_table("group_members")
++    op.drop_table("work_groups")
++    op.drop_table("plans")
++    op.drop_table("summaries")
++    op.drop_table("responses")
++    op.drop_table("assessments")
++    op.drop_index(op.f("ix_profiles_code"), table_name="profiles")
++    op.drop_table("profiles")
++    op.drop_index(op.f("ix_users_username"), table_name="users")
++    op.drop_table("users")
+diff --git a/backend/app/__init__.py b/backend/app/__init__.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..71ca7f34ec7e87bc3b7006cf5041e490aadd3234
+--- /dev/null
++++ b/backend/app/__init__.py
+@@ -0,0 +1 @@
++"""EduFAD backend package."""
+diff --git a/backend/app/audit.py b/backend/app/audit.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..c3f5d3a749003bfaec9c794657744ccb4dbdaaf2
+--- /dev/null
++++ b/backend/app/audit.py
+@@ -0,0 +1,15 @@
++from sqlalchemy.orm import Session
++
++from .models import AuditLog
++
++
++def log_action(db: Session, user_id: int | None, action: str, entity_type: str, entity_id: int | None, details: str | None = None) -> None:
++    entry = AuditLog(
++        user_id=user_id,
++        action=action,
++        entity_type=entity_type,
++        entity_id=entity_id,
++        details=details,
++    )
++    db.add(entry)
++    db.commit()
+diff --git a/backend/app/auth.py b/backend/app/auth.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..dc14c5a29145221e67b2e3bd7c593bd5c77151d4
+--- /dev/null
++++ b/backend/app/auth.py
+@@ -0,0 +1,83 @@
++from datetime import datetime, timedelta
++from typing import Optional
++
++from fastapi import Depends, HTTPException, status
++from fastapi.security import OAuth2PasswordBearer
++from jose import JWTError, jwt
++from passlib.context import CryptContext
++from sqlalchemy.orm import Session
++
++from .config import get_settings
++from .database import SessionLocal
++from .models import User
++
++
++pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
++oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
++
++_login_attempts: dict[str, tuple[int, datetime]] = {}
++
++
++def get_db():
++    db = SessionLocal()
++    try:
++        yield db
++    finally:
++        db.close()
++
++
++def verify_password(plain: str, hashed: str) -> bool:
++    return pwd_context.verify(plain, hashed)
++
++
++def hash_password(password: str) -> str:
++    return pwd_context.hash(password)
++
++
++def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
++    settings = get_settings()
++    to_encode = data.copy()
++    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.access_token_expire_minutes))
++    to_encode.update({"exp": expire})
++    return jwt.encode(to_encode, settings.secret_key, algorithm="HS256")
++
++
++def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
++    settings = get_settings()
++    credentials_exception = HTTPException(
++        status_code=status.HTTP_401_UNAUTHORIZED,
++        detail="Credenziali non valide.",
++        headers={"WWW-Authenticate": "Bearer"},
++    )
++    try:
++        payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
++        username: str = payload.get("sub")
++        if not username:
++            raise credentials_exception
++    except JWTError as exc:
++        raise credentials_exception from exc
++    user = db.query(User).filter(User.username == username).first()
++    if not user or not user.is_active:
++        raise credentials_exception
++    return user
++
++
++def require_admin(user: User = Depends(get_current_user)) -> User:
++    if user.role != "admin":
++        raise HTTPException(status_code=403, detail="Permessi amministratore richiesti.")
++    return user
++
++
++def rate_limit_login(username: str) -> None:
++    now = datetime.utcnow()
++    attempts, last_time = _login_attempts.get(username, (0, now))
++    if (now - last_time).total_seconds() > 300:
++        attempts = 0
++    attempts += 1
++    _login_attempts[username] = (attempts, now)
++    if attempts > 5:
++        raise HTTPException(status_code=429, detail="Troppi tentativi. Riprova tra pochi minuti.")
++
++
++def reset_rate_limit(username: str) -> None:
++    _login_attempts.pop(username, None)
+diff --git a/backend/app/checklist.py b/backend/app/checklist.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..7ca7b10f4d34d6d874c56ba64eb9fc5e95ab21e0
+--- /dev/null
++++ b/backend/app/checklist.py
+@@ -0,0 +1,104 @@
++CHECKLIST = {
++    "version": "1.1",
++    "legend": {"support": "0-3", "freq": "F0-F4", "gen": "G0-G3"},
++    "areas": [
++        {
++            "id": "AP",
++            "name": "Autonomie personali",
++            "items": [
++                {"id": "AP01", "label": "Si lava le mani completando la routine funzionale"},
++                {"id": "AP02", "label": "Si lava il viso completando l’azione"},
++                {"id": "AP03", "label": "Si lava i denti completando la routine prevista"},
++                {"id": "AP04", "label": "Indossa e toglie i capi di abbigliamento quotidiani"},
++                {"id": "AP05", "label": "Gestisce i sistemi di chiusura dei vestiti"},
++                {"id": "AP06", "label": "Gestisce l’allacciamento delle scarpe"},
++                {"id": "AP07", "label": "Consuma un pasto utilizzando le posate"},
++                {"id": "AP08", "label": "Taglia il cibo con posate in modo funzionale"},
++                {"id": "AP09", "label": "Gestisce tovagliolo e pulizia personale durante il pasto"},
++                {"id": "AP10", "label": "Beve utilizzando il bicchiere senza rovesciare il contenuto"},
++                {"id": "AP11", "label": "Utilizza il fazzoletto per soffiarsi il naso"},
++                {"id": "AP12", "label": "Gestisce l’igiene dopo l’uso dei servizi igienici"},
++            ],
++        },
++        {
++            "id": "GT",
++            "name": "Gestione del tempo",
++            "items": [
++                {"id": "GT01", "label": "Avvia un’attività all’orario stabilito"},
++                {"id": "GT02", "label": "Conclude un’attività entro il tempo previsto"},
++                {"id": "GT03", "label": "Passa da un’attività a un’altra rispettando la consegna temporale"},
++                {"id": "GT04", "label": "Segue una routine giornaliera strutturata"},
++                {"id": "GT05", "label": "Utilizza un supporto temporale per orientarsi nella giornata"},
++                {"id": "GT06", "label": "Legge l’orologio per orientarsi nel tempo"},
++                {"id": "GT07", "label": "Attende un turno o un evento rispettando il tempo indicato"},
++                {"id": "GT08", "label": "Gestisce un breve tempo libero senza disorganizzarsi"},
++            ],
++        },
++        {
++            "id": "GD",
++            "name": "Gestione del denaro",
++            "items": [
++                {"id": "GD01", "label": "Riconosce monete e banconote di uso comune"},
++                {"id": "GD02", "label": "Associa il denaro al valore richiesto per un acquisto semplice"},
++                {"id": "GD03", "label": "Effettua un pagamento in contanti per un acquisto semplice"},
++                {"id": "GD04", "label": "Riceve e controlla il resto dopo un pagamento"},
++                {"id": "GD05", "label": "Conserva il denaro in modo adeguato durante l’attività"},
++                {"id": "GD06", "label": "Rispetta un limite di spesa indicato"},
++                {"id": "GD07", "label": "Riconosce la necessità di pagare per ottenere un bene o servizio"},
++            ],
++        },
++        {
++            "id": "GA",
++            "name": "Gestione dell’ambiente",
++            "items": [
++                {"id": "GA01", "label": "Riordina il proprio spazio personale dopo l’attività"},
++                {"id": "GA02", "label": "Ripone gli oggetti personali nel luogo previsto"},
++                {"id": "GA03", "label": "Utilizza correttamente gli oggetti in base alla loro funzione"},
++                {"id": "GA04", "label": "Restituisce gli oggetti condivisi al termine dell’uso"},
++                {"id": "GA05", "label": "Rispetta le regole di utilizzo degli spazi comuni"},
++                {"id": "GA06", "label": "Mantiene in ordine uno spazio comune dopo l’attività"},
++                {"id": "GA07", "label": "Si muove negli ambienti rispettando i percorsi indicati"},
++            ],
++        },
++        {
++            "id": "AD",
++            "name": "Autonomie domestiche",
++            "items": [
++                {"id": "AD01", "label": "Prepara uno spuntino semplice seguendo i passaggi essenziali"},
++                {"id": "AD02", "label": "Apparecchia la tavola per un pasto semplice"},
++                {"id": "AD03", "label": "Sparecchia la tavola al termine del pasto"},
++                {"id": "AD04", "label": "Lava stoviglie utilizzando acqua e detergente"},
++                {"id": "AD05", "label": "Pulisce una superficie dopo l’attività"},
++                {"id": "AD06", "label": "Utilizza un elettrodomestico semplice in modo sicuro"},
++                {"id": "AD07", "label": "Ripone il bucato pulito nel luogo previsto"},
++            ],
++        },
++        {
++            "id": "AS",
++            "name": "Autonomie sociali",
++            "items": [
++                {"id": "AS01", "label": "Chiede aiuto in modo comprensibile quando necessario"},
++                {"id": "AS02", "label": "Esprime un bisogno o una richiesta in modo funzionale"},
++                {"id": "AS03", "label": "Rispetta il turno durante un’attività condivisa"},
++                {"id": "AS04", "label": "Segue una regola sociale esplicita indicata dall’adulto"},
++                {"id": "AS05", "label": "Avvia un’interazione sociale semplice con un pari o un adulto"},
++                {"id": "AS06", "label": "Mantiene un’interazione sociale semplice fino alla conclusione"},
++                {"id": "AS07", "label": "Accetta una richiesta o un limite comunicato dall’adulto"},
++            ],
++        },
++        {
++            "id": "AL",
++            "name": "Apprendimento",
++            "items": [
++                {"id": "AL01", "label": "Mantiene l’attenzione su un compito strutturato"},
++                {"id": "AL02", "label": "Comprende una consegna semplice"},
++                {"id": "AL03", "label": "Segue una consegna composta da più passaggi"},
++                {"id": "AL04", "label": "Riconosce lettere o simboli di uso frequente"},
++                {"id": "AL05", "label": "Legge parole o brevi frasi in modo funzionale"},
++                {"id": "AL06", "label": "Scrive parole o brevi frasi in modo funzionale"},
++                {"id": "AL07", "label": "Esegue semplici operazioni o conteggi funzionali"},
++                {"id": "AL08", "label": "Utilizza strategie apprese per risolvere un compito noto"},
++            ],
++        },
++    ],
++}
+diff --git a/backend/app/config.py b/backend/app/config.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..d26f21109bb1e7d90d988f1e282a1b56e604a45e
+--- /dev/null
++++ b/backend/app/config.py
+@@ -0,0 +1,16 @@
++from functools import lru_cache
++from pydantic import BaseSettings, Field
++
++
++class Settings(BaseSettings):
++    database_url: str = Field("sqlite:///./edufad.db", env="DATABASE_URL")
++    secret_key: str = Field("change-me", env="SECRET_KEY")
++    access_token_expire_minutes: int = Field(60 * 8, env="ACCESS_TOKEN_EXPIRE_MINUTES")
++    admin_username: str = Field("admin", env="ADMIN_USERNAME")
++    admin_password: str = Field("admin123", env="ADMIN_PASSWORD")
++    timezone: str = Field("Europe/Rome", env="TZ")
++
++
++@lru_cache
++def get_settings() -> Settings:
++    return Settings()
+diff --git a/backend/app/database.py b/backend/app/database.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..8c237b2661cb3634351cbbeaa025b87ecf7b4ae5
+--- /dev/null
++++ b/backend/app/database.py
+@@ -0,0 +1,20 @@
++from sqlalchemy import create_engine
++from sqlalchemy.orm import sessionmaker, DeclarativeBase
++
++from .config import get_settings
++
++
++class Base(DeclarativeBase):
++    pass
++
++
++def get_engine():
++    settings = get_settings()
++    connect_args = {}
++    if settings.database_url.startswith("sqlite"):
++        connect_args = {"check_same_thread": False}
++    return create_engine(settings.database_url, connect_args=connect_args, future=True)
++
++
++engine = get_engine()
++SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+diff --git a/backend/app/main.py b/backend/app/main.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..2a15bb4a45e4d19b9c3586c1d7e666332854c94b
+--- /dev/null
++++ b/backend/app/main.py
+@@ -0,0 +1,738 @@
++from datetime import date, datetime, timedelta
++import csv
++import io
++import json
++
++from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
++from fastapi.staticfiles import StaticFiles
++from fastapi.security import OAuth2PasswordRequestForm
++from sqlalchemy import and_, func, select
++from sqlalchemy.orm import Session
++
++from .audit import log_action
++from .auth import (
++    create_access_token,
++    get_current_user,
++    get_db,
++    hash_password,
++    rate_limit_login,
++    reset_rate_limit,
++    require_admin,
++    verify_password,
++)
++from .checklist import CHECKLIST
++from .config import get_settings
++from .database import Base, engine
++from .models import (
++    Assessment,
++    AuditLog,
++    GroupAssignee,
++    GroupMember,
++    Plan,
++    Profile,
++    Response as ResponseModel,
++    Summary,
++    User,
++    WorkGroup,
++)
++from .schemas import (
++    AssessmentCreate,
++    AssessmentOut,
++    AssessmentUpdate,
++    AuditOut,
++    PlanOut,
++    ProfileCreate,
++    ProfileOut,
++    ProfileUpdate,
++    ResponseCreate,
++    ResponseOut,
++    SummaryOut,
++    SummaryUpdate,
++    Token,
++    UserBasic,
++    UserCreate,
++    UserOut,
++    WorkGroupCreate,
++    WorkGroupOut,
++    WorkGroupUpdate,
++)
++from .services import ITEM_TO_AREA, build_plan_content, summarize_assessment
++
++
++app = FastAPI(title="EduFAD")
++
++
++@app.on_event("startup")
++def startup():
++    Base.metadata.create_all(bind=engine)
++    settings = get_settings()
++    db = next(get_db())
++    existing = db.query(User).filter(User.username == settings.admin_username).first()
++    if not existing:
++        admin = User(
++            username=settings.admin_username,
++            password_hash=hash_password(settings.admin_password),
++            role="admin",
++            is_active=True,
++        )
++        db.add(admin)
++        db.commit()
++        log_action(db, None, "seed_admin", "user", admin.id, "Creato utente admin iniziale.")
++    db.close()
++
++
++@app.post("/api/auth/login", response_model=Token)
++def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
++    rate_limit_login(form_data.username)
++    user = db.query(User).filter(User.username == form_data.username).first()
++    if not user or not verify_password(form_data.password, user.password_hash):
++        raise HTTPException(status_code=401, detail="Credenziali errate.")
++    if not user.is_active:
++        raise HTTPException(status_code=403, detail="Utente disattivato.")
++    reset_rate_limit(form_data.username)
++    access_token = create_access_token({"sub": user.username, "role": user.role})
++    log_action(db, user.id, "login", "user", user.id, "Accesso utente.")
++    return Token(access_token=access_token)
++
++
++@app.get("/api/auth/me", response_model=UserOut)
++def read_me(user: User = Depends(get_current_user)):
++    return user
++
++
++@app.post("/api/auth/ack-disclaimer", response_model=UserOut)
++def acknowledge_disclaimer(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    user.disclaimer_ack_at = datetime.utcnow()
++    db.commit()
++    log_action(db, user.id, "acknowledge", "disclaimer", user.id, "Conferma disclaimer.")
++    return user
++
++
++@app.post("/api/users", response_model=UserOut, dependencies=[Depends(require_admin)])
++def create_user(payload: UserCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    if db.query(User).filter(User.username == payload.username).first():
++        raise HTTPException(status_code=400, detail="Username già esistente.")
++    new_user = User(
++        username=payload.username,
++        password_hash=hash_password(payload.password),
++        role=payload.role,
++        is_active=True,
++    )
++    db.add(new_user)
++    db.commit()
++    log_action(db, user.id, "create", "user", new_user.id, f"Creato utente {payload.username}.")
++    return new_user
++
++
++@app.get("/api/users", response_model=list[UserOut], dependencies=[Depends(require_admin)])
++def list_users(db: Session = Depends(get_db)):
++    return db.query(User).order_by(User.username).all()
++
++
++@app.get("/api/users/basic", response_model=list[UserBasic])
++def list_users_basic(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    return db.query(User).order_by(User.username).all()
++
++
++@app.patch("/api/users/{user_id}", response_model=UserOut, dependencies=[Depends(require_admin)])
++def update_user(user_id: int, payload: UserCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    existing = db.query(User).filter(User.id == user_id).first()
++    if not existing:
++        raise HTTPException(status_code=404, detail="Utente non trovato.")
++    existing.username = payload.username
++    existing.role = payload.role
++    existing.password_hash = hash_password(payload.password)
++    db.commit()
++    log_action(db, user.id, "update", "user", existing.id, "Aggiornato utente.")
++    return existing
++
++
++@app.delete("/api/users/{user_id}", dependencies=[Depends(require_admin)])
++def delete_user(user_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    existing = db.query(User).filter(User.id == user_id).first()
++    if not existing:
++        raise HTTPException(status_code=404, detail="Utente non trovato.")
++    db.delete(existing)
++    db.commit()
++    log_action(db, user.id, "delete", "user", user_id, "Eliminato utente.")
++    return {"ok": True}
++
++
++@app.get("/api/checklist")
++def get_checklist():
++    return CHECKLIST
++
++
++@app.post("/api/profiles", response_model=ProfileOut, dependencies=[Depends(require_admin)])
++def create_profile(payload: ProfileCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    profile = Profile(**payload.dict())
++    db.add(profile)
++    db.commit()
++    log_action(db, user.id, "create", "profile", profile.id, f"Creato profilo {profile.display_name}.")
++    return profile
++
++
++@app.get("/api/profiles", response_model=list[ProfileOut])
++def list_profiles(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    return db.query(Profile).order_by(Profile.display_name).all()
++
++
++@app.patch("/api/profiles/{profile_id}", response_model=ProfileOut, dependencies=[Depends(require_admin)])
++def update_profile(profile_id: int, payload: ProfileUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    profile = db.query(Profile).filter(Profile.id == profile_id).first()
++    if not profile:
++        raise HTTPException(status_code=404, detail="Profilo non trovato.")
++    for field, value in payload.dict(exclude_unset=True).items():
++        setattr(profile, field, value)
++    db.commit()
++    log_action(db, user.id, "update", "profile", profile.id, "Aggiornato profilo.")
++    return profile
++
++
++@app.delete("/api/profiles/{profile_id}", dependencies=[Depends(require_admin)])
++def delete_profile(profile_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    profile = db.query(Profile).filter(Profile.id == profile_id).first()
++    if not profile:
++        raise HTTPException(status_code=404, detail="Profilo non trovato.")
++    db.delete(profile)
++    db.commit()
++    log_action(db, user.id, "delete", "profile", profile_id, "Eliminato profilo.")
++    return {"ok": True}
++
++
++@app.post("/api/assessments", response_model=AssessmentOut)
++def create_assessment(payload: AssessmentCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    assessment = Assessment(
++        **payload.dict(),
++        created_by_id=user.id,
++        updated_by_id=user.id,
++    )
++    db.add(assessment)
++    db.commit()
++    log_action(db, user.id, "create", "assessment", assessment.id, "Creato assessment.")
++    return assessment
++
++
++@app.get("/api/assessments", response_model=list[AssessmentOut])
++def list_assessments(
++    profile_id: int | None = None,
++    include_deleted: bool = False,
++    db: Session = Depends(get_db),
++    user: User = Depends(get_current_user),
++):
++    query = db.query(Assessment)
++    if profile_id:
++        query = query.filter(Assessment.profile_id == profile_id)
++    if not include_deleted or user.role != "admin":
++        query = query.filter(Assessment.is_deleted.is_(False))
++    return query.order_by(Assessment.assessment_date.desc()).all()
++
++
++@app.get("/api/assessments/{assessment_id}", response_model=AssessmentOut)
++def get_assessment(assessment_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    assessment = db.query(Assessment).filter(Assessment.id == assessment_id).first()
++    if not assessment or (assessment.is_deleted and user.role != "admin"):
++        raise HTTPException(status_code=404, detail="Assessment non trovato.")
++    return assessment
++
++
++@app.patch("/api/assessments/{assessment_id}", response_model=AssessmentOut)
++def update_assessment(
++    assessment_id: int,
++    payload: AssessmentUpdate,
++    db: Session = Depends(get_db),
++    user: User = Depends(get_current_user),
++):
++    assessment = db.query(Assessment).filter(Assessment.id == assessment_id).first()
++    if not assessment or (assessment.is_deleted and user.role != "admin"):
++        raise HTTPException(status_code=404, detail="Assessment non trovato.")
++    for field, value in payload.dict(exclude_unset=True).items():
++        setattr(assessment, field, value)
++    assessment.updated_by_id = user.id
++    db.commit()
++    log_action(db, user.id, "update", "assessment", assessment.id, "Aggiornato assessment.")
++    return assessment
++
++
++@app.delete("/api/assessments/{assessment_id}")
++def soft_delete_assessment(assessment_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    assessment = db.query(Assessment).filter(Assessment.id == assessment_id).first()
++    if not assessment:
++        raise HTTPException(status_code=404, detail="Assessment non trovato.")
++    if user.role != "admin":
++        if assessment.created_by_id != user.id:
++            raise HTTPException(status_code=403, detail="Non autorizzato alla cancellazione.")
++        if datetime.utcnow() - assessment.created_at > timedelta(hours=24):
++            raise HTTPException(status_code=403, detail="Tempo massimo di cancellazione superato.")
++    assessment.is_deleted = True
++    assessment.deleted_at = datetime.utcnow()
++    assessment.deleted_by_id = user.id
++    db.commit()
++    log_action(db, user.id, "delete", "assessment", assessment.id, "Soft delete assessment.")
++    return {"ok": True}
++
++
++@app.post("/api/assessments/{assessment_id}/restore", dependencies=[Depends(require_admin)])
++def restore_assessment(assessment_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    assessment = db.query(Assessment).filter(Assessment.id == assessment_id).first()
++    if not assessment:
++        raise HTTPException(status_code=404, detail="Assessment non trovato.")
++    assessment.is_deleted = False
++    assessment.deleted_at = None
++    assessment.deleted_by_id = None
++    db.commit()
++    log_action(db, user.id, "restore", "assessment", assessment.id, "Ripristino assessment.")
++    return {"ok": True}
++
++
++@app.delete("/api/assessments/{assessment_id}/hard-delete", dependencies=[Depends(require_admin)])
++def hard_delete_assessment(assessment_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    assessment = db.query(Assessment).filter(Assessment.id == assessment_id).first()
++    if not assessment:
++        raise HTTPException(status_code=404, detail="Assessment non trovato.")
++    db.delete(assessment)
++    db.commit()
++    log_action(db, user.id, "hard_delete", "assessment", assessment_id, "Eliminazione definitiva.")
++    return {"ok": True}
++
++
++@app.get("/api/assessments/{assessment_id}/responses", response_model=list[ResponseOut])
++def list_responses(assessment_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    assessment = db.query(Assessment).filter(Assessment.id == assessment_id, Assessment.is_deleted.is_(False)).first()
++    if not assessment:
++        raise HTTPException(status_code=404, detail="Assessment non trovato.")
++    return db.query(ResponseModel).filter(ResponseModel.assessment_id == assessment_id).all()
++
++
++def _refresh_summary(db: Session, assessment: Assessment, user_id: int):
++    responses = db.query(ResponseModel).filter(ResponseModel.assessment_id == assessment.id).all()
++    response_dicts = [{"item_id": r.item_id, "support": r.support} for r in responses]
++    new_auto = summarize_assessment(response_dicts)
++    if assessment.summary:
++        prev = assessment.summary.auto_text
++        if prev != new_auto:
++            log_action(db, user_id, "summary_regenerate", "assessment", assessment.id, prev)
++        assessment.summary.auto_text = new_auto
++        assessment.summary.last_generated_at = datetime.utcnow()
++    else:
++        summary = Summary(assessment_id=assessment.id, auto_text=new_auto)
++        db.add(summary)
++    db.commit()
++
++
++@app.post("/api/assessments/{assessment_id}/responses", response_model=ResponseOut)
++def upsert_response(
++    assessment_id: int,
++    payload: ResponseCreate,
++    db: Session = Depends(get_db),
++    user: User = Depends(get_current_user),
++):
++    assessment = db.query(Assessment).filter(Assessment.id == assessment_id, Assessment.is_deleted.is_(False)).first()
++    if not assessment:
++        raise HTTPException(status_code=404, detail="Assessment non trovato.")
++    response = (
++        db.query(ResponseModel)
++        .filter(ResponseModel.assessment_id == assessment_id, ResponseModel.item_id == payload.item_id)
++        .first()
++    )
++    if response:
++        for field, value in payload.dict().items():
++            setattr(response, field, value)
++        response.updated_by_id = user.id
++    else:
++        response = ResponseModel(
++            assessment_id=assessment_id,
++            updated_by_id=user.id,
++            **payload.dict(),
++        )
++        db.add(response)
++    db.commit()
++    _refresh_summary(db, assessment, user.id)
++    log_action(db, user.id, "update", "response", response.id, "Aggiornato item.")
++    return response
++
++
++@app.get("/api/assessments/{assessment_id}/summary", response_model=SummaryOut)
++def get_summary(assessment_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    summary = db.query(Summary).filter(Summary.assessment_id == assessment_id).first()
++    if not summary:
++        raise HTTPException(status_code=404, detail="Sintesi non trovata.")
++    return summary
++
++
++@app.patch("/api/assessments/{assessment_id}/summary", response_model=SummaryOut)
++def update_summary(
++    assessment_id: int,
++    payload: SummaryUpdate,
++    db: Session = Depends(get_db),
++    user: User = Depends(get_current_user),
++):
++    summary = db.query(Summary).filter(Summary.assessment_id == assessment_id).first()
++    if not summary:
++        raise HTTPException(status_code=404, detail="Sintesi non trovata.")
++    summary.manual_text = payload.manual_text
++    summary.manual_edited_at = datetime.utcnow()
++    db.commit()
++    log_action(db, user.id, "update", "summary", summary.id, "Modifica sintesi manuale.")
++    return summary
++
++
++@app.post("/api/assessments/{assessment_id}/plans", response_model=PlanOut)
++def generate_plan(assessment_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    assessment = db.query(Assessment).filter(Assessment.id == assessment_id, Assessment.is_deleted.is_(False)).first()
++    if not assessment:
++        raise HTTPException(status_code=404, detail="Assessment non trovato.")
++    responses = db.query(ResponseModel).filter(ResponseModel.assessment_id == assessment_id).all()
++    response_dicts = [{"item_id": r.item_id, "support": r.support} for r in responses]
++    content_json, content_text = build_plan_content(response_dicts)
++    latest_version = db.query(func.max(Plan.version)).filter(Plan.assessment_id == assessment_id).scalar() or 0
++    db.query(Plan).filter(Plan.assessment_id == assessment_id).update({Plan.is_active: False})
++    plan = Plan(
++        assessment_id=assessment_id,
++        version=latest_version + 1,
++        generated_by_id=user.id,
++        content_json=content_json,
++        content_text=content_text,
++        is_active=True,
++    )
++    db.add(plan)
++    db.commit()
++    log_action(db, user.id, "generate", "plan", plan.id, "Generato piano educativo.")
++    return plan
++
++
++@app.get("/api/assessments/{assessment_id}/plans", response_model=list[PlanOut])
++def list_plans(assessment_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    return db.query(Plan).filter(Plan.assessment_id == assessment_id).order_by(Plan.version.desc()).all()
++
++
++@app.get("/api/dashboard/profile/{profile_id}")
++def dashboard_profile(profile_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    assessments = (
++        db.query(Assessment)
++        .filter(
++            Assessment.profile_id == profile_id,
++            Assessment.status == "finalized",
++            Assessment.is_deleted.is_(False),
++        )
++        .order_by(Assessment.assessment_date.asc())
++        .all()
++    )
++    series = []
++    for assessment in assessments:
++        responses = db.query(ResponseModel).filter(ResponseModel.assessment_id == assessment.id).all()
++        area_values = {}
++        for area_id in {ITEM_TO_AREA.get(r.item_id) for r in responses}:
++            supports = [r.support for r in responses if ITEM_TO_AREA.get(r.item_id) == area_id]
++            if supports:
++                area_values[area_id] = sum(supports) / len(supports)
++        series.append(
++            {
++                "assessment_id": assessment.id,
++                "date": assessment.assessment_date.isoformat(),
++                "areas": area_values,
++            }
++        )
++    return {"series": series}
++
++
++@app.get("/api/dashboard/compare")
++def compare_assessments(
++    assessment_a: int = Query(...),
++    assessment_b: int = Query(...),
++    db: Session = Depends(get_db),
++    user: User = Depends(get_current_user),
++):
++    responses_a = db.query(ResponseModel).filter(ResponseModel.assessment_id == assessment_a).all()
++    responses_b = db.query(ResponseModel).filter(ResponseModel.assessment_id == assessment_b).all()
++    map_a = {r.item_id: r.support for r in responses_a}
++    map_b = {r.item_id: r.support for r in responses_b}
++    deltas = []
++    for item_id in set(map_a) | set(map_b):
++        support_a = map_a.get(item_id)
++        support_b = map_b.get(item_id)
++        if support_a is None or support_b is None:
++            continue
++        delta = support_b - support_a
++        deltas.append({"item_id": item_id, "delta": delta})
++    return {"deltas": deltas}
++
++
++@app.get("/api/dashboard/item/{item_id}")
++def dashboard_item(
++    item_id: str,
++    max_support: int = 1,
++    db: Session = Depends(get_db),
++    user: User = Depends(get_current_user),
++):
++    subquery = (
++        db.query(
++            Assessment.profile_id,
++            func.max(Assessment.assessment_date).label("latest_date"),
++        )
++        .filter(Assessment.status == "finalized", Assessment.is_deleted.is_(False))
++        .group_by(Assessment.profile_id)
++        .subquery()
++    )
++    assessments = (
++        db.query(Assessment)
++        .join(subquery, and_(Assessment.profile_id == subquery.c.profile_id, Assessment.assessment_date == subquery.c.latest_date))
++        .all()
++    )
++    rows = []
++    for assessment in assessments:
++        response = (
++            db.query(ResponseModel)
++            .filter(ResponseModel.assessment_id == assessment.id, ResponseModel.item_id == item_id)
++            .first()
++        )
++        if response and response.support <= max_support:
++            profile = db.query(Profile).filter(Profile.id == assessment.profile_id).first()
++            rows.append(
++                {
++                    "profile_id": profile.id,
++                    "profile_name": profile.display_name,
++                    "assessment_date": assessment.assessment_date.isoformat(),
++                    "support": response.support,
++                    "freq": response.freq,
++                    "gen": response.gen,
++                }
++            )
++    return {"item_id": item_id, "results": rows}
++
++
++@app.post("/api/work-groups", response_model=WorkGroupOut)
++def create_group(payload: WorkGroupCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    group = WorkGroup(
++        title=payload.title,
++        item_id=payload.item_id,
++        area_id=payload.area_id,
++        support_min=payload.support_min,
++        support_max=payload.support_max,
++        created_by_id=user.id,
++        start_date=payload.start_date,
++        end_date=payload.end_date,
++        notes=payload.notes,
++        status=payload.status,
++    )
++    db.add(group)
++    db.commit()
++    for profile_id in payload.member_profile_ids:
++        db.add(GroupMember(group_id=group.id, profile_id=profile_id))
++    for user_id in payload.assignee_user_ids:
++        db.add(GroupAssignee(group_id=group.id, user_id=user_id))
++    db.commit()
++    log_action(db, user.id, "create", "group", group.id, "Creato gruppo di lavoro.")
++    return _group_out(group)
++
++
++@app.get("/api/work-groups", response_model=list[WorkGroupOut])
++def list_groups(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    return [_group_out(group) for group in db.query(WorkGroup).order_by(WorkGroup.created_at.desc()).all()]
++
++
++@app.patch("/api/work-groups/{group_id}", response_model=WorkGroupOut)
++def update_group(group_id: int, payload: WorkGroupUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    group = db.query(WorkGroup).filter(WorkGroup.id == group_id).first()
++    if not group:
++        raise HTTPException(status_code=404, detail="Gruppo non trovato.")
++    for field, value in payload.dict(exclude_unset=True).items():
++        if field in {"member_profile_ids", "assignee_user_ids"}:
++            continue
++        setattr(group, field, value)
++    if payload.member_profile_ids is not None:
++        db.query(GroupMember).filter(GroupMember.group_id == group_id).delete()
++        for profile_id in payload.member_profile_ids:
++            db.add(GroupMember(group_id=group_id, profile_id=profile_id))
++    if payload.assignee_user_ids is not None:
++        db.query(GroupAssignee).filter(GroupAssignee.group_id == group_id).delete()
++        for user_id in payload.assignee_user_ids:
++            db.add(GroupAssignee(group_id=group_id, user_id=user_id))
++    db.commit()
++    log_action(db, user.id, "update", "group", group.id, "Aggiornato gruppo.")
++    return _group_out(group)
++
++
++@app.delete("/api/work-groups/{group_id}")
++def delete_group(group_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    if user.role != "admin":
++        raise HTTPException(status_code=403, detail="Solo admin può eliminare definitivamente.")
++    group = db.query(WorkGroup).filter(WorkGroup.id == group_id).first()
++    if not group:
++        raise HTTPException(status_code=404, detail="Gruppo non trovato.")
++    db.delete(group)
++    db.commit()
++    log_action(db, user.id, "delete", "group", group_id, "Eliminato gruppo.")
++    return {"ok": True}
++
++
++@app.get("/api/audit", response_model=list[AuditOut], dependencies=[Depends(require_admin)])
++def list_audit(db: Session = Depends(get_db)):
++    return db.query(AuditLog).order_by(AuditLog.created_at.desc()).limit(200).all()
++
++
++def _group_out(group: WorkGroup) -> WorkGroupOut:
++    return WorkGroupOut(
++        id=group.id,
++        title=group.title,
++        item_id=group.item_id,
++        area_id=group.area_id,
++        support_min=group.support_min,
++        support_max=group.support_max,
++        created_by_id=group.created_by_id,
++        created_at=group.created_at,
++        updated_at=group.updated_at,
++        start_date=group.start_date,
++        end_date=group.end_date,
++        notes=group.notes,
++        status=group.status,
++        members=[m.profile_id for m in group.members],
++        assignees=[a.user_id for a in group.assignees],
++    )
++
++
++def _pdf_response(content: bytes, filename: str) -> Response:
++    return Response(content, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={filename}"})
++
++
++@app.get("/api/exports/assessments.csv")
++def export_assessments_csv(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    assessments = (
++        db.query(Assessment)
++        .filter(Assessment.is_deleted.is_(False), Assessment.status == "finalized")
++        .all()
++    )
++    output = io.StringIO()
++    writer = csv.writer(output)
++    writer.writerow(["id", "profile_id", "assessment_date", "status", "operator_name", "operator_role"])
++    for a in assessments:
++        writer.writerow([a.id, a.profile_id, a.assessment_date, a.status, a.operator_name, a.operator_role])
++    log_action(db, user.id, "export", "assessment", None, "Export CSV assessments.")
++    return Response(output.getvalue(), media_type="text/csv")
++
++
++@app.get("/api/exports/item/{item_id}.csv")
++def export_item_csv(item_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    dashboard = dashboard_item(item_id, db=db, user=user)
++    output = io.StringIO()
++    writer = csv.writer(output)
++    writer.writerow(["profile_id", "profile_name", "assessment_date", "support", "freq", "gen"])
++    for row in dashboard["results"]:
++        writer.writerow([row["profile_id"], row["profile_name"], row["assessment_date"], row["support"], row["freq"], row["gen"]])
++    log_action(db, user.id, "export", "dashboard_item", None, f"Export CSV item {item_id}.")
++    return Response(output.getvalue(), media_type="text/csv")
++
++
++@app.get("/api/exports/assessment/{assessment_id}.pdf")
++def export_assessment_pdf(assessment_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    from reportlab.lib.pagesizes import A4
++    from reportlab.pdfgen import canvas
++
++    assessment = db.query(Assessment).filter(Assessment.id == assessment_id).first()
++    if not assessment:
++        raise HTTPException(status_code=404, detail="Assessment non trovato.")
++    profile = db.query(Profile).filter(Profile.id == assessment.profile_id).first()
++    responses = db.query(ResponseModel).filter(ResponseModel.assessment_id == assessment_id).all()
++    summary = db.query(Summary).filter(Summary.assessment_id == assessment_id).first()
++    buffer = io.BytesIO()
++    c = canvas.Canvas(buffer, pagesize=A4)
++    y = 800
++    c.setFont("Helvetica-Bold", 14)
++    c.drawString(40, y, "EduFAD - Report Assessment")
++    y -= 20
++    c.setFont("Helvetica", 10)
++    age = assessment.assessment_date.year - profile.date_of_birth.year - (
++        (assessment.assessment_date.month, assessment.assessment_date.day) < (profile.date_of_birth.month, profile.date_of_birth.day)
++    )
++    c.drawString(40, y, f"Profilo: {profile.display_name} (DOB {profile.date_of_birth}, età {age} anni)")
++    y -= 14
++    c.drawString(40, y, f"Data: {assessment.assessment_date} | Operatore: {assessment.operator_name} ({assessment.operator_role})")
++    y -= 14
++    c.drawString(40, y, f"Versione checklist: {CHECKLIST['version']}")
++    y -= 20
++    if summary:
++        c.drawString(40, y, "Sintesi:")
++        y -= 14
++        for line in summary.auto_text.split(". "):
++            c.drawString(50, y, line.strip())
++            y -= 12
++    y -= 10
++    c.drawString(40, y, "Risposte:")
++    y -= 14
++    for resp in responses:
++        c.drawString(50, y, f"{resp.item_id}: S{resp.support} F{resp.freq or '-'} G{resp.gen or '-'}")
++        y -= 12
++        if y < 60:
++            c.showPage()
++            y = 800
++    c.setFont("Helvetica-Oblique", 8)
++    c.drawString(40, 30, "Strumento educativo/osservativo, non diagnostico o terapeutico.")
++    c.showPage()
++    c.save()
++    log_action(db, user.id, "export", "assessment_pdf", assessment_id, "Export PDF assessment.")
++    return _pdf_response(buffer.getvalue(), f"assessment_{assessment_id}.pdf")
++
++
++@app.get("/api/exports/item/{item_id}.pdf")
++def export_item_pdf(item_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    from reportlab.lib.pagesizes import A4
++    from reportlab.pdfgen import canvas
++
++    dashboard = dashboard_item(item_id, db=db, user=user)
++    buffer = io.BytesIO()
++    c = canvas.Canvas(buffer, pagesize=A4)
++    y = 800
++    c.setFont("Helvetica-Bold", 14)
++    c.drawString(40, y, f"EduFAD - Dashboard Item {item_id}")
++    y -= 20
++    c.setFont("Helvetica", 10)
++    c.drawString(40, y, f"Esportato da: {user.username}")
++    y -= 14
++    for row in dashboard["results"]:
++        c.drawString(40, y, f"{row['profile_name']} - {row['assessment_date']} - S{row['support']}")
++        y -= 12
++        if y < 60:
++            c.showPage()
++            y = 800
++    c.setFont("Helvetica-Oblique", 8)
++    c.drawString(40, 30, "Strumento educativo/osservativo, non diagnostico o terapeutico.")
++    c.showPage()
++    c.save()
++    log_action(db, user.id, "export", "dashboard_item_pdf", None, f"Export PDF item {item_id}.")
++    return _pdf_response(buffer.getvalue(), f"item_{item_id}.pdf")
++
++
++@app.get("/api/exports/plan/{plan_id}.pdf")
++def export_plan_pdf(plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
++    from reportlab.lib.pagesizes import A4
++    from reportlab.pdfgen import canvas
++
++    plan = db.query(Plan).filter(Plan.id == plan_id).first()
++    if not plan:
++        raise HTTPException(status_code=404, detail="Piano non trovato.")
++    buffer = io.BytesIO()
++    c = canvas.Canvas(buffer, pagesize=A4)
++    y = 800
++    c.setFont("Helvetica-Bold", 14)
++    c.drawString(40, y, f"EduFAD - Piano Educativo v{plan.version}")
++    y -= 20
++    c.setFont("Helvetica", 10)
++    for line in plan.content_text.split("\n"):
++        c.drawString(40, y, line[:110])
++        y -= 12
++        if y < 60:
++            c.showPage()
++            y = 800
++    c.setFont("Helvetica-Oblique", 8)
++    c.drawString(40, 30, "Strumento educativo/osservativo, non diagnostico o terapeutico.")
++    c.showPage()
++    c.save()
++    log_action(db, user.id, "export", "plan_pdf", plan_id, "Export PDF piano.")
++    return _pdf_response(buffer.getvalue(), f"plan_{plan_id}.pdf")
++
++
++from pathlib import Path
++
++
++static_dir = Path(__file__).resolve().parents[1] / "static"
++app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+diff --git a/backend/app/models.py b/backend/app/models.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..abb21de80bf60c40315f1a00913ae21b0cb9c1f9
+--- /dev/null
++++ b/backend/app/models.py
+@@ -0,0 +1,172 @@
++from datetime import date, datetime
++
++from sqlalchemy import (
++    Boolean,
++    Date,
++    DateTime,
++    ForeignKey,
++    Integer,
++    JSON,
++    String,
++    Text,
++    UniqueConstraint,
++    func,
++)
++from sqlalchemy.orm import Mapped, mapped_column, relationship
++
++from .database import Base
++
++
++class User(Base):
++    __tablename__ = "users"
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True)
++    username: Mapped[str] = mapped_column(String(50), unique=True, index=True)
++    password_hash: Mapped[str] = mapped_column(String(255))
++    role: Mapped[str] = mapped_column(String(20), default="editor")
++    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
++    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++    disclaimer_ack_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
++
++
++class Profile(Base):
++    __tablename__ = "profiles"
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True)
++    code: Mapped[str] = mapped_column(String(32), unique=True, index=True)
++    display_name: Mapped[str] = mapped_column(String(150))
++    date_of_birth: Mapped[date] = mapped_column(Date)
++    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
++    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
++
++    assessments: Mapped[list["Assessment"]] = relationship(back_populates="profile")
++
++
++class Assessment(Base):
++    __tablename__ = "assessments"
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True)
++    profile_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"))
++    assessment_date: Mapped[date] = mapped_column(Date)
++    created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
++    updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
++    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
++    operator_name: Mapped[str] = mapped_column(String(150))
++    operator_role: Mapped[str] = mapped_column(String(80))
++    present_user_ids: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
++    present_other: Mapped[str | None] = mapped_column(Text, nullable=True)
++    session_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
++    status: Mapped[str] = mapped_column(String(20), default="draft")
++    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
++    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
++    deleted_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
++
++    profile: Mapped["Profile"] = relationship(back_populates="assessments")
++    responses: Mapped[list["Response"]] = relationship(back_populates="assessment", cascade="all, delete-orphan")
++    summary: Mapped["Summary"] = relationship(back_populates="assessment", cascade="all, delete-orphan", uselist=False)
++    plans: Mapped[list["Plan"]] = relationship(back_populates="assessment", cascade="all, delete-orphan")
++
++
++class Response(Base):
++    __tablename__ = "responses"
++    __table_args__ = (UniqueConstraint("assessment_id", "item_id", name="uq_assessment_item"),)
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True)
++    assessment_id: Mapped[int] = mapped_column(ForeignKey("assessments.id"))
++    item_id: Mapped[str] = mapped_column(String(20))
++    support: Mapped[int] = mapped_column(Integer)
++    freq: Mapped[str | None] = mapped_column(String(10), nullable=True)
++    gen: Mapped[str | None] = mapped_column(String(10), nullable=True)
++    context: Mapped[str | None] = mapped_column(Text, nullable=True)
++    note: Mapped[str | None] = mapped_column(Text, nullable=True)
++    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
++    updated_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
++
++    assessment: Mapped["Assessment"] = relationship(back_populates="responses")
++
++
++class Summary(Base):
++    __tablename__ = "summaries"
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True)
++    assessment_id: Mapped[int] = mapped_column(ForeignKey("assessments.id"), unique=True)
++    auto_text: Mapped[str] = mapped_column(Text)
++    manual_text: Mapped[str | None] = mapped_column(Text, nullable=True)
++    manual_edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
++    last_generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++
++    assessment: Mapped["Assessment"] = relationship(back_populates="summary")
++
++
++class Plan(Base):
++    __tablename__ = "plans"
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True)
++    assessment_id: Mapped[int] = mapped_column(ForeignKey("assessments.id"))
++    version: Mapped[int] = mapped_column(Integer, default=1)
++    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++    generated_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
++    content_json: Mapped[str] = mapped_column(Text)
++    content_text: Mapped[str] = mapped_column(Text)
++    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
++
++    assessment: Mapped["Assessment"] = relationship(back_populates="plans")
++
++
++class WorkGroup(Base):
++    __tablename__ = "work_groups"
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True)
++    title: Mapped[str] = mapped_column(String(150))
++    item_id: Mapped[str] = mapped_column(String(20))
++    area_id: Mapped[str] = mapped_column(String(50))
++    support_min: Mapped[int] = mapped_column(Integer)
++    support_max: Mapped[int] = mapped_column(Integer)
++    created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
++    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
++    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
++    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
++    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
++    status: Mapped[str] = mapped_column(String(20), default="active")
++
++    members: Mapped[list["GroupMember"]] = relationship(back_populates="group", cascade="all, delete-orphan")
++    assignees: Mapped[list["GroupAssignee"]] = relationship(back_populates="group", cascade="all, delete-orphan")
++
++
++class GroupMember(Base):
++    __tablename__ = "group_members"
++    __table_args__ = (UniqueConstraint("group_id", "profile_id", name="uq_group_profile"),)
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True)
++    group_id: Mapped[int] = mapped_column(ForeignKey("work_groups.id"))
++    profile_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"))
++    last_support: Mapped[int | None] = mapped_column(Integer, nullable=True)
++    last_assessment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
++
++    group: Mapped["WorkGroup"] = relationship(back_populates="members")
++
++
++class GroupAssignee(Base):
++    __tablename__ = "group_assignees"
++    __table_args__ = (UniqueConstraint("group_id", "user_id", name="uq_group_user"),)
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True)
++    group_id: Mapped[int] = mapped_column(ForeignKey("work_groups.id"))
++    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
++
++    group: Mapped["WorkGroup"] = relationship(back_populates="assignees")
++
++
++class AuditLog(Base):
++    __tablename__ = "audit_logs"
++
++    id: Mapped[int] = mapped_column(Integer, primary_key=True)
++    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
++    action: Mapped[str] = mapped_column(String(50))
++    entity_type: Mapped[str] = mapped_column(String(50))
++    entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
++    details: Mapped[str | None] = mapped_column(Text, nullable=True)
++    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+diff --git a/backend/app/schemas.py b/backend/app/schemas.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..3f54a7b0bd8d8179ff5b49242120ee22aaf7ef1f
+--- /dev/null
++++ b/backend/app/schemas.py
+@@ -0,0 +1,207 @@
++from datetime import date, datetime
++from typing import List, Optional
++
++from pydantic import BaseModel, Field
++
++
++class Token(BaseModel):
++    access_token: str
++    token_type: str = "bearer"
++
++
++class UserBase(BaseModel):
++    username: str
++    role: str
++    is_active: bool
++
++
++class UserCreate(BaseModel):
++    username: str
++    password: str
++    role: str = "editor"
++
++
++class UserOut(UserBase):
++    id: int
++    created_at: datetime
++    disclaimer_ack_at: Optional[datetime] = None
++
++    class Config:
++        orm_mode = True
++
++
++class UserBasic(BaseModel):
++    id: int
++    username: str
++    role: str
++    is_active: bool
++
++    class Config:
++        orm_mode = True
++
++
++class ProfileBase(BaseModel):
++    code: str
++    display_name: str
++    date_of_birth: date
++    notes: Optional[str] = None
++
++
++class ProfileCreate(ProfileBase):
++    pass
++
++
++class ProfileUpdate(BaseModel):
++    display_name: Optional[str] = None
++    date_of_birth: Optional[date] = None
++    notes: Optional[str] = None
++
++
++class ProfileOut(ProfileBase):
++    id: int
++    created_at: datetime
++    updated_at: datetime
++
++    class Config:
++        orm_mode = True
++
++
++class AssessmentBase(BaseModel):
++    profile_id: int
++    assessment_date: date
++    operator_name: str
++    operator_role: str
++    present_user_ids: Optional[List[int]] = None
++    present_other: Optional[str] = None
++    session_notes: Optional[str] = None
++    status: str = Field("draft", regex="^(draft|finalized)$")
++
++
++class AssessmentCreate(AssessmentBase):
++    pass
++
++
++class AssessmentUpdate(BaseModel):
++    assessment_date: Optional[date] = None
++    operator_name: Optional[str] = None
++    operator_role: Optional[str] = None
++    present_user_ids: Optional[List[int]] = None
++    present_other: Optional[str] = None
++    session_notes: Optional[str] = None
++    status: Optional[str] = Field(None, regex="^(draft|finalized)$")
++
++
++class AssessmentOut(AssessmentBase):
++    id: int
++    created_by_id: int
++    updated_by_id: Optional[int]
++    created_at: datetime
++    updated_at: datetime
++    is_deleted: bool
++
++    class Config:
++        orm_mode = True
++
++
++class ResponseBase(BaseModel):
++    item_id: str
++    support: int = Field(ge=0, le=3)
++    freq: Optional[str] = Field(None, regex="^F[0-4]$")
++    gen: Optional[str] = Field(None, regex="^G[0-3]$")
++    context: Optional[str] = None
++    note: Optional[str] = None
++
++
++class ResponseCreate(ResponseBase):
++    pass
++
++
++class ResponseOut(ResponseBase):
++    id: int
++    assessment_id: int
++    updated_at: datetime
++    updated_by_id: int
++
++    class Config:
++        orm_mode = True
++
++
++class SummaryOut(BaseModel):
++    auto_text: str
++    manual_text: Optional[str] = None
++    manual_edited_at: Optional[datetime] = None
++    last_generated_at: datetime
++
++    class Config:
++        orm_mode = True
++
++
++class SummaryUpdate(BaseModel):
++    manual_text: Optional[str] = None
++
++
++class PlanOut(BaseModel):
++    id: int
++    version: int
++    generated_at: datetime
++    generated_by_id: int
++    content_json: str
++    content_text: str
++    is_active: bool
++
++    class Config:
++        orm_mode = True
++
++
++class WorkGroupBase(BaseModel):
++    title: str
++    item_id: str
++    area_id: str
++    support_min: int
++    support_max: int
++    start_date: Optional[date] = None
++    end_date: Optional[date] = None
++    notes: Optional[str] = None
++    status: str = "active"
++
++
++class WorkGroupCreate(WorkGroupBase):
++    member_profile_ids: List[int] = []
++    assignee_user_ids: List[int] = []
++
++
++class WorkGroupUpdate(BaseModel):
++    title: Optional[str] = None
++    support_min: Optional[int] = None
++    support_max: Optional[int] = None
++    start_date: Optional[date] = None
++    end_date: Optional[date] = None
++    notes: Optional[str] = None
++    status: Optional[str] = None
++    member_profile_ids: Optional[List[int]] = None
++    assignee_user_ids: Optional[List[int]] = None
++
++
++class WorkGroupOut(WorkGroupBase):
++    id: int
++    created_by_id: int
++    created_at: datetime
++    updated_at: datetime
++    members: List[int] = []
++    assignees: List[int] = []
++
++    class Config:
++        orm_mode = True
++
++
++class AuditOut(BaseModel):
++    id: int
++    user_id: Optional[int]
++    action: str
++    entity_type: str
++    entity_id: Optional[int]
++    details: Optional[str]
++    created_at: datetime
++
++    class Config:
++        orm_mode = True
+diff --git a/backend/app/services.py b/backend/app/services.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..c166b5725d01ca00f9012337cd6230e4eb20f2f3
+--- /dev/null
++++ b/backend/app/services.py
+@@ -0,0 +1,75 @@
++from collections import defaultdict
++from datetime import datetime
++import json
++
++from .checklist import CHECKLIST
++
++
++def build_area_map():
++    area_map = {}
++    item_to_area = {}
++    for area in CHECKLIST["areas"]:
++        area_map[area["id"]] = area
++        for item in area["items"]:
++            item_to_area[item["id"]] = area["id"]
++    return area_map, item_to_area
++
++
++AREA_MAP, ITEM_TO_AREA = build_area_map()
++
++
++def summarize_assessment(responses: list[dict]) -> str:
++    buckets = defaultdict(list)
++    for resp in responses:
++        area_id = ITEM_TO_AREA.get(resp["item_id"])
++        if area_id:
++            buckets[area_id].append(resp["support"])
++    lines = []
++    for area_id, supports in buckets.items():
++        area = AREA_MAP[area_id]["name"]
++        if supports:
++            avg = sum(supports) / len(supports)
++            low = sum(1 for s in supports if s <= 1)
++            line = (
++                f"{area}: livello medio di supporto {avg:.1f}. "
++                f"Indicatori critici (supporto 0-1): {low} su {len(supports)}."
++            )
++        else:
++            line = f"{area}: dati non disponibili."
++        lines.append(line)
++    return " ".join(lines)
++
++
++def build_plan_content(responses: list[dict]) -> tuple[str, str]:
++    plan = []
++    for area in CHECKLIST["areas"]:
++        area_items = []
++        for item in area["items"]:
++            resp = next((r for r in responses if r["item_id"] == item["id"]), None)
++            support = resp["support"] if resp else None
++            line = {
++                "item_id": item["id"],
++                "label": item["label"],
++                "support": support,
++                "obiettivo": "Consolidare abilità funzionale" if support is not None and support <= 1 else "Mantenere e generalizzare",
++                "strategie": "Attività guidate, modellamento, rinforzo positivo.",
++                "criteri": "Esegue il compito in autonomia con supporto ridotto.",
++            }
++            area_items.append(line)
++        plan.append({"area": area["name"], "items": area_items})
++    return json.dumps(plan, ensure_ascii=False), _plan_text(plan)
++
++
++def _plan_text(plan: list[dict]) -> str:
++    chunks = []
++    for area in plan:
++        chunks.append(area["area"])
++        for item in area["items"]:
++            chunks.append(
++                f"- {item['item_id']} {item['label']}: {item['obiettivo']} | {item['strategie']} | {item['criteri']}"
++            )
++    return "\n".join(chunks)
++
++
++def now_iso() -> str:
++    return datetime.utcnow().isoformat()
+diff --git a/backend/requirements.txt b/backend/requirements.txt
+new file mode 100644
+index 0000000000000000000000000000000000000000..14edee8a3b365482bd573a5e021275950202c3ac
+--- /dev/null
++++ b/backend/requirements.txt
+@@ -0,0 +1,11 @@
++fastapi==0.110.2
++uvicorn==0.29.0
++sqlalchemy==2.0.30
++alembic==1.13.1
++psycopg2-binary==2.9.9
++python-jose==3.3.0
++passlib[bcrypt]==1.7.4
++python-multipart==0.0.9
++reportlab==4.2.0
++pytest==8.2.0
++httpx==0.27.0
+diff --git a/backend/static/app.js b/backend/static/app.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..278207f189a7f234bb79ba2625d4d96bc8148f1a
+--- /dev/null
++++ b/backend/static/app.js
+@@ -0,0 +1,497 @@
++const state = {
++  token: null,
++  user: null,
++  checklist: null,
++  profiles: [],
++  assessments: [],
++  currentAssessment: null,
++  users: [],
++  groups: [],
++  currentGroup: null,
++};
++
++const api = async (path, options = {}) => {
++  const headers = options.headers || {};
++  if (state.token) {
++    headers["Authorization"] = `Bearer ${state.token}`;
++  }
++  if (!options.body) {
++    headers["Content-Type"] = "application/json";
++  }
++  const response = await fetch(path, { ...options, headers });
++  if (!response.ok) {
++    const data = await response.json().catch(() => ({ detail: "Errore inatteso." }));
++    throw new Error(data.detail || "Errore inatteso.");
++  }
++  if (response.headers.get("content-type")?.includes("application/json")) {
++    return response.json();
++  }
++  return response;
++};
++
++const showTab = (tab) => {
++  document.querySelectorAll(".tab-content").forEach((el) => el.classList.add("hidden"));
++  document.getElementById(`tab-${tab}`).classList.remove("hidden");
++};
++
++const renderProfiles = async () => {
++  const profiles = await api("/api/profiles");
++  state.profiles = profiles;
++  const table = document.getElementById("profiles-table");
++  table.innerHTML = "<tr><th>Codice</th><th>Nome</th><th>Nascita</th></tr>";
++  profiles.forEach((profile) => {
++    table.innerHTML += `<tr><td>${profile.code}</td><td>${profile.display_name}</td><td>${profile.date_of_birth}</td></tr>`;
++  });
++  const select = document.getElementById("dashboard-profile-select");
++  select.innerHTML = profiles.map((p) => `<option value="${p.id}">${p.display_name}</option>`).join("");
++  document.getElementById("assessment-profile").innerHTML = profiles
++    .map((p) => `<option value="${p.id}">${p.display_name}</option>`)
++    .join("");
++  document.getElementById("group-members").innerHTML = profiles
++    .map((p) => `<option value="${p.id}">${p.display_name}</option>`)
++    .join("");
++};
++
++const computeAge = (dob, assessmentDate) => {
++  const birth = new Date(dob);
++  const ref = new Date(assessmentDate);
++  let age = ref.getFullYear() - birth.getFullYear();
++  const m = ref.getMonth() - birth.getMonth();
++  if (m < 0 || (m === 0 && ref.getDate() < birth.getDate())) {
++    age -= 1;
++  }
++  return `${age} anni`;
++};
++
++const renderAssessments = async () => {
++  const includeDeleted = document.getElementById("show-deleted").checked;
++  const assessments = await api(`/api/assessments${includeDeleted ? "?include_deleted=true" : ""}`);
++  state.assessments = assessments;
++  const profileMap = Object.fromEntries(state.profiles.map((p) => [p.id, p]));
++  const table = document.getElementById("assessments-table");
++  table.innerHTML = "<tr><th>ID</th><th>Profilo</th><th>Data</th><th>Età</th><th>Stato</th><th>Azioni</th></tr>";
++  assessments.forEach((a) => {
++    const profile = profileMap[a.profile_id];
++    const age = profile ? computeAge(profile.date_of_birth, a.assessment_date) : "-";
++    const deleted = a.is_deleted ? " (eliminato)" : "";
++    table.innerHTML += `<tr>
++      <td>${a.id}</td>
++      <td>${profile?.display_name || a.profile_id}</td>
++      <td>${a.assessment_date}</td>
++      <td>${age}</td>
++      <td>${a.status}${deleted}</td>
++      <td>
++        <button data-edit="${a.id}">Apri</button>
++        ${state.user.role === "admin" && a.is_deleted ? `<button data-restore="${a.id}">Ripristina</button>` : ""}
++      </td>
++    </tr>`;
++  });
++  table.querySelectorAll("button[data-edit]").forEach((btn) => {
++    btn.addEventListener("click", () => openAssessment(btn.dataset.edit));
++  });
++  table.querySelectorAll("button[data-restore]").forEach((btn) => {
++    btn.addEventListener("click", async () => {
++      await api(`/api/assessments/${btn.dataset.restore}/restore`, { method: "POST" });
++      renderAssessments();
++    });
++  });
++};
++
++const renderDashboard = async () => {
++  const profileId = document.getElementById("dashboard-profile-select").value;
++  if (!profileId) return;
++  const data = await api(`/api/dashboard/profile/${profileId}`);
++  const canvas = document.getElementById("profile-chart");
++  const ctx = canvas.getContext("2d");
++  ctx.clearRect(0, 0, canvas.width, canvas.height);
++  ctx.strokeStyle = "#1e3a8a";
++  ctx.beginPath();
++  data.series.forEach((point, index) => {
++    const x = 50 + index * 80;
++    const avg = Object.values(point.areas).reduce((acc, v) => acc + v, 0) / (Object.keys(point.areas).length || 1);
++    const y = 250 - avg * 50;
++    if (index === 0) ctx.moveTo(x, y);
++    else ctx.lineTo(x, y);
++    ctx.fillText(point.date, x - 10, 280);
++  });
++  ctx.stroke();
++  const compareA = document.getElementById("compare-a");
++  const compareB = document.getElementById("compare-b");
++  const options = state.assessments
++    .filter((a) => a.profile_id === Number(profileId))
++    .map((a) => `<option value="${a.id}">${a.assessment_date} (${a.status})</option>`)
++    .join("");
++  compareA.innerHTML = options;
++  compareB.innerHTML = options;
++};
++
++const renderItemDashboard = async () => {
++  const itemId = document.getElementById("dashboard-item-select").value;
++  if (!itemId) return;
++  const data = await api(`/api/dashboard/item/${itemId}?max_support=1`);
++  const table = document.getElementById("item-dashboard-table");
++  table.innerHTML = "<tr><th>Studente</th><th>Data</th><th>Supporto</th></tr>";
++  data.results.forEach((row) => {
++    table.innerHTML += `<tr><td>${row.profile_name}</td><td>${row.assessment_date}</td><td>${row.support}</td></tr>`;
++  });
++};
++
++const renderGroups = async () => {
++  const groups = await api("/api/work-groups");
++  state.groups = groups;
++  const table = document.getElementById("groups-table");
++  table.innerHTML = "<tr><th>Titolo</th><th>Item</th><th>Status</th></tr>";
++  groups.forEach((group) => {
++    table.innerHTML += `<tr>
++      <td>${group.title}</td>
++      <td>${group.item_id}</td>
++      <td>${group.status}</td>
++      <td><button data-group="${group.id}">Apri</button></td>
++    </tr>`;
++  });
++  table.querySelectorAll("button[data-group]").forEach((btn) => {
++    btn.addEventListener("click", () => openGroup(btn.dataset.group));
++  });
++};
++
++const initChecklist = async () => {
++  state.checklist = await api("/api/checklist");
++  const itemSelect = document.getElementById("dashboard-item-select");
++  itemSelect.innerHTML = state.checklist.areas
++    .flatMap((area) => area.items.map((item) => `<option value="${item.id}">${item.id} ${item.label}</option>`))
++    .join("");
++  document.getElementById("group-item").innerHTML = itemSelect.innerHTML;
++};
++
++const loadUsers = async () => {
++  state.users = await api("/api/users/basic");
++  document.getElementById("group-assignees").innerHTML = state.users
++    .map((u) => `<option value="${u.id}">${u.username} (${u.role})</option>`)
++    .join("");
++};
++
++const openAssessment = async (assessmentId) => {
++  const assessment = await api(`/api/assessments/${assessmentId}`);
++  state.currentAssessment = assessment;
++  document.getElementById("assessment-editor").classList.remove("hidden");
++  document.getElementById("assessment-profile").value = assessment.profile_id;
++  document.getElementById("assessment-date").value = assessment.assessment_date;
++  document.getElementById("assessment-status").value = assessment.status;
++  document.getElementById("assessment-operator-name").value = assessment.operator_name;
++  document.getElementById("assessment-operator-role").value = assessment.operator_role;
++  document.getElementById("assessment-present-users").value = (assessment.present_user_ids || []).join(", ");
++  document.getElementById("assessment-present-other").value = assessment.present_other || "";
++  document.getElementById("assessment-notes").value = assessment.session_notes || "";
++  document.getElementById("assessment-meta").textContent = `ID ${assessment.id}`;
++  await renderResponses();
++  await loadSummary();
++  await loadPlans();
++};
++
++const renderResponses = async () => {
++  const container = document.getElementById("responses-container");
++  const assessment = state.currentAssessment;
++  if (!assessment) return;
++  const warning = document.getElementById("assessment-warning");
++  if (state.user.role === "admin" && (!assessment.operator_name || !assessment.operator_role)) {
++    warning.textContent = "Per gli admin, inserire nome e ruolo operatore prima di compilare le risposte.";
++  } else {
++    warning.textContent = "";
++  }
++  const existing = await api(`/api/assessments/${assessment.id}/responses`);
++  const responseMap = Object.fromEntries(existing.map((r) => [r.item_id, r]));
++  container.innerHTML = "";
++  state.checklist.areas.forEach((area) => {
++    const areaBlock = document.createElement("div");
++    areaBlock.innerHTML = `<h4>${area.name}</h4>`;
++    area.items.forEach((item) => {
++      const resp = responseMap[item.id] || {};
++      const row = document.createElement("div");
++      row.className = "form-grid";
++      row.innerHTML = `
++        <div><strong>${item.id}</strong> ${item.label}</div>
++        <label>Supporto
++          <select data-item="${item.id}" data-field="support">
++            ${[0, 1, 2, 3].map((v) => `<option value="${v}" ${resp.support === v ? "selected" : ""}>${v}</option>`).join("")}
++          </select>
++        </label>
++        <label>Frequenza
++          <select data-item="${item.id}" data-field="freq">
++            ${["", "F0", "F1", "F2", "F3", "F4"].map((v) => `<option value="${v}" ${resp.freq === v ? "selected" : ""}>${v || "-"}</option>`).join("")}
++          </select>
++        </label>
++        <label>Generalizzazione
++          <select data-item="${item.id}" data-field="gen">
++            ${["", "G0", "G1", "G2", "G3"].map((v) => `<option value="${v}" ${resp.gen === v ? "selected" : ""}>${v || "-"}</option>`).join("")}
++          </select>
++        </label>
++        <label>Contesto <input data-item="${item.id}" data-field="context" value="${resp.context || ""}" /></label>
++        <label>Nota <input data-item="${item.id}" data-field="note" value="${resp.note || ""}" /></label>
++      `;
++      areaBlock.appendChild(row);
++    });
++    container.appendChild(areaBlock);
++  });
++  container.querySelectorAll("select,input").forEach((el) => {
++    el.addEventListener("change", () => autosaveResponse(el.dataset.item));
++  });
++};
++
++const autosaveResponse = async (itemId) => {
++  const assessment = state.currentAssessment;
++  if (!assessment) return;
++  const operatorName = document.getElementById("assessment-operator-name").value.trim();
++  const operatorRole = document.getElementById("assessment-operator-role").value.trim();
++  if (state.user.role === "admin" && (!operatorName || !operatorRole)) {
++    return;
++  }
++  const fields = {};
++  document.querySelectorAll(`[data-item="${itemId}"]`).forEach((el) => {
++    fields[el.dataset.field] = el.value || null;
++  });
++  await api(`/api/assessments/${assessment.id}/responses`, {
++    method: "POST",
++    body: JSON.stringify({
++      item_id: itemId,
++      support: Number(fields.support),
++      freq: fields.freq || null,
++      gen: fields.gen || null,
++      context: fields.context || null,
++      note: fields.note || null,
++    }),
++  });
++  await loadSummary();
++};
++
++const loadSummary = async () => {
++  try {
++    const summary = await api(`/api/assessments/${state.currentAssessment.id}/summary`);
++    document.getElementById("summary-auto").textContent = summary.auto_text || "";
++    document.getElementById("summary-manual").value = summary.manual_text || "";
++  } catch (err) {
++    document.getElementById("summary-auto").textContent = "";
++    document.getElementById("summary-manual").value = "";
++  }
++};
++
++const loadPlans = async () => {
++  const plans = await api(`/api/assessments/${state.currentAssessment.id}/plans`);
++  const list = document.getElementById("plans-list");
++  list.innerHTML = "";
++  plans.forEach((plan) => {
++    const li = document.createElement("li");
++    li.innerHTML = `v${plan.version} - ${plan.generated_at} <button data-plan="${plan.id}">PDF</button>`;
++    list.appendChild(li);
++  });
++  list.querySelectorAll("button[data-plan]").forEach((btn) => {
++    btn.addEventListener("click", () => {
++      window.open(`/api/exports/plan/${btn.dataset.plan}.pdf`, "_blank");
++    });
++  });
++};
++
++const openGroup = async (groupId) => {
++  const group = state.groups.find((g) => g.id === Number(groupId));
++  if (!group) return;
++  state.currentGroup = group;
++  document.getElementById("group-editor").classList.remove("hidden");
++  document.getElementById("group-title").value = group.title;
++  document.getElementById("group-item").value = group.item_id;
++  document.getElementById("group-area").value = group.area_id;
++  document.getElementById("group-support-min").value = group.support_min;
++  document.getElementById("group-support-max").value = group.support_max;
++  document.getElementById("group-start").value = group.start_date || "";
++  document.getElementById("group-end").value = group.end_date || "";
++  document.getElementById("group-notes").value = group.notes || "";
++  document.getElementById("group-status").value = group.status;
++  Array.from(document.getElementById("group-members").options).forEach((opt) => {
++    opt.selected = group.members.includes(Number(opt.value));
++  });
++  Array.from(document.getElementById("group-assignees").options).forEach((opt) => {
++    opt.selected = group.assignees.includes(Number(opt.value));
++  });
++};
++
++const showDisclaimerIfNeeded = () => {
++  if (!state.user || state.user.disclaimer_ack_at) return;
++  const modal = document.getElementById("disclaimer-modal");
++  modal.classList.remove("hidden");
++  document.getElementById("disclaimer-ack").onclick = async () => {
++    await api("/api/auth/ack-disclaimer", { method: "POST" });
++    modal.classList.add("hidden");
++    state.user.disclaimer_ack_at = new Date().toISOString();
++  };
++};
++
++document.getElementById("login-form").addEventListener("submit", async (event) => {
++  event.preventDefault();
++  const username = document.getElementById("login-username").value;
++  const password = document.getElementById("login-password").value;
++  try {
++    const data = await api("/api/auth/login", {
++      method: "POST",
++      headers: { "Content-Type": "application/x-www-form-urlencoded" },
++      body: new URLSearchParams({ username, password }),
++    });
++    state.token = data.access_token;
++    state.user = await api("/api/auth/me");
++    document.getElementById("login-section").classList.add("hidden");
++    document.getElementById("app-section").classList.remove("hidden");
++    document.getElementById("user-info").textContent = `${state.user.username} (${state.user.role})`;
++    await initChecklist();
++    await renderProfiles();
++    await renderAssessments();
++    await loadUsers();
++    await renderGroups();
++    showTab("profiles");
++    showDisclaimerIfNeeded();
++  } catch (err) {
++    document.getElementById("login-error").textContent = err.message;
++  }
++});
++
++document.querySelectorAll(".tabs button").forEach((button) => {
++  button.addEventListener("click", () => {
++    const tab = button.dataset.tab;
++    showTab(tab);
++    if (tab === "dashboard") {
++      renderDashboard();
++      renderItemDashboard();
++    }
++  });
++});
++
++document.getElementById("dashboard-profile-select").addEventListener("change", renderDashboard);
++document.getElementById("dashboard-item-select").addEventListener("change", renderItemDashboard);
++
++document.getElementById("export-item-csv").addEventListener("click", () => {
++  const itemId = document.getElementById("dashboard-item-select").value;
++  window.open(`/api/exports/item/${itemId}.csv`, "_blank");
++});
++
++document.getElementById("export-item-pdf").addEventListener("click", () => {
++  const itemId = document.getElementById("dashboard-item-select").value;
++  window.open(`/api/exports/item/${itemId}.pdf`, "_blank");
++});
++
++document.getElementById("show-deleted").addEventListener("change", renderAssessments);
++
++document.getElementById("new-assessment").addEventListener("click", async () => {
++  if (!state.profiles.length) return;
++  const payload = {
++    profile_id: state.profiles[0].id,
++    assessment_date: new Date().toISOString().slice(0, 10),
++    operator_name: state.user.username,
++    operator_role: state.user.role === "admin" ? "" : "Editor",
++    status: "draft",
++  };
++  const assessment = await api("/api/assessments", { method: "POST", body: JSON.stringify(payload) });
++  await renderAssessments();
++  openAssessment(assessment.id);
++});
++
++document.getElementById("save-assessment").addEventListener("click", async () => {
++  const assessment = state.currentAssessment;
++  if (!assessment) return;
++  const payload = {
++    profile_id: Number(document.getElementById("assessment-profile").value),
++    assessment_date: document.getElementById("assessment-date").value,
++    operator_name: document.getElementById("assessment-operator-name").value,
++    operator_role: document.getElementById("assessment-operator-role").value,
++    present_user_ids: document.getElementById("assessment-present-users").value
++      .split(",")
++      .map((v) => Number(v.trim()))
++      .filter((v) => !Number.isNaN(v)),
++    present_other: document.getElementById("assessment-present-other").value,
++    session_notes: document.getElementById("assessment-notes").value,
++    status: document.getElementById("assessment-status").value,
++  };
++  const updated = await api(`/api/assessments/${assessment.id}`, { method: "PATCH", body: JSON.stringify(payload) });
++  state.currentAssessment = updated;
++  await renderAssessments();
++});
++
++document.getElementById("delete-assessment").addEventListener("click", async () => {
++  if (!state.currentAssessment) return;
++  await api(`/api/assessments/${state.currentAssessment.id}`, { method: "DELETE" });
++  document.getElementById("assessment-editor").classList.add("hidden");
++  await renderAssessments();
++});
++
++document.getElementById("export-assessment-pdf").addEventListener("click", () => {
++  if (!state.currentAssessment) return;
++  window.open(`/api/exports/assessment/${state.currentAssessment.id}.pdf`, "_blank");
++});
++
++document.getElementById("generate-plan").addEventListener("click", async () => {
++  if (!state.currentAssessment) return;
++  await api(`/api/assessments/${state.currentAssessment.id}/plans`, { method: "POST" });
++  await loadPlans();
++});
++
++document.getElementById("save-summary").addEventListener("click", async () => {
++  if (!state.currentAssessment) return;
++  await api(`/api/assessments/${state.currentAssessment.id}/summary`, {
++    method: "PATCH",
++    body: JSON.stringify({ manual_text: document.getElementById("summary-manual").value }),
++  });
++});
++
++document.getElementById("compare-run").addEventListener("click", async () => {
++  const a = document.getElementById("compare-a").value;
++  const b = document.getElementById("compare-b").value;
++  if (!a || !b) return;
++  const data = await api(`/api/dashboard/compare?assessment_a=${a}&assessment_b=${b}`);
++  const table = document.getElementById("compare-table");
++  table.innerHTML = "<tr><th>Item</th><th>Delta</th></tr>";
++  data.deltas.forEach((delta) => {
++    table.innerHTML += `<tr><td>${delta.item_id}</td><td>${delta.delta}</td></tr>`;
++  });
++});
++
++document.getElementById("create-group-from-item").addEventListener("click", () => {
++  const itemId = document.getElementById("dashboard-item-select").value;
++  document.getElementById("group-item").value = itemId;
++  document.getElementById("group-area").value = itemId.slice(0, 2);
++  document.getElementById("group-support-min").value = 0;
++  document.getElementById("group-support-max").value = 1;
++  document.getElementById("group-editor").classList.remove("hidden");
++  showTab("groups");
++});
++
++document.getElementById("new-group").addEventListener("click", () => {
++  state.currentGroup = null;
++  document.getElementById("group-editor").classList.remove("hidden");
++  document.getElementById("group-title").value = "";
++  document.getElementById("group-notes").value = "";
++});
++
++document.getElementById("save-group").addEventListener("click", async () => {
++  const payload = {
++    title: document.getElementById("group-title").value,
++    item_id: document.getElementById("group-item").value,
++    area_id: document.getElementById("group-area").value,
++    support_min: Number(document.getElementById("group-support-min").value),
++    support_max: Number(document.getElementById("group-support-max").value),
++    start_date: document.getElementById("group-start").value || null,
++    end_date: document.getElementById("group-end").value || null,
++    notes: document.getElementById("group-notes").value,
++    status: document.getElementById("group-status").value,
++    member_profile_ids: Array.from(document.getElementById("group-members").selectedOptions).map((o) => Number(o.value)),
++    assignee_user_ids: Array.from(document.getElementById("group-assignees").selectedOptions).map((o) => Number(o.value)),
++  };
++  if (state.currentGroup) {
++    await api(`/api/work-groups/${state.currentGroup.id}`, { method: "PATCH", body: JSON.stringify(payload) });
++  } else {
++    await api("/api/work-groups", { method: "POST", body: JSON.stringify(payload) });
++  }
++  document.getElementById("group-editor").classList.add("hidden");
++  await renderGroups();
++});
++
++document.getElementById("delete-group").addEventListener("click", async () => {
++  if (!state.currentGroup) return;
++  await api(`/api/work-groups/${state.currentGroup.id}`, { method: "DELETE" });
++  document.getElementById("group-editor").classList.add("hidden");
++  await renderGroups();
++});
+diff --git a/backend/static/index.html b/backend/static/index.html
+new file mode 100644
+index 0000000000000000000000000000000000000000..f2c8d17ee99dc683c9471ebc2116c54aea612d67
+--- /dev/null
++++ b/backend/static/index.html
+@@ -0,0 +1,211 @@
++<!DOCTYPE html>
++<html lang="it">
++  <head>
++    <meta charset="UTF-8" />
++    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++    <title>EduFAD</title>
++    <link rel="stylesheet" href="/styles.css" />
++  </head>
++  <body>
++    <header class="app-header">
++      <div>
++        <h1>EduFAD</h1>
++        <p class="subtitle">Strumento educativo per il funzionamento adattivo</p>
++      </div>
++      <div id="user-info"></div>
++    </header>
++
++    <main>
++      <section id="login-section" class="card">
++        <h2>Accesso</h2>
++        <form id="login-form">
++          <label>Username <input type="text" id="login-username" required /></label>
++          <label>Password <input type="password" id="login-password" required /></label>
++          <button type="submit">Entra</button>
++          <div id="login-error" class="error"></div>
++        </form>
++      </section>
++
++      <section id="app-section" class="hidden">
++        <nav class="tabs">
++          <button data-tab="profiles">Profili</button>
++          <button data-tab="assessments">Valutazioni</button>
++          <button data-tab="dashboard">Dashboard</button>
++          <button data-tab="groups">Gruppi di lavoro</button>
++        </nav>
++
++        <div id="tab-profiles" class="tab-content card">
++          <h2>Profili studenti</h2>
++          <div id="profiles-actions"></div>
++          <table id="profiles-table"></table>
++        </div>
++
++        <div id="tab-assessments" class="tab-content card hidden">
++          <h2>Valutazioni</h2>
++          <div id="assessments-actions">
++            <button id="new-assessment">Nuova valutazione</button>
++            <label class="inline">
++              <input type="checkbox" id="show-deleted" />
++              Mostra eliminati (admin)
++            </label>
++          </div>
++          <table id="assessments-table"></table>
++          <div id="assessment-editor" class="hidden">
++            <h3>Editor valutazione</h3>
++            <div id="assessment-meta"></div>
++            <div class="form-grid">
++              <label>Profilo
++                <select id="assessment-profile"></select>
++              </label>
++              <label>Data
++                <input type="date" id="assessment-date" />
++              </label>
++              <label>Stato
++                <select id="assessment-status">
++                  <option value="draft">Bozza</option>
++                  <option value="finalized">Finalizzato</option>
++                </select>
++              </label>
++              <label>Operatore
++                <input type="text" id="assessment-operator-name" />
++              </label>
++              <label>Ruolo operatore
++                <input type="text" id="assessment-operator-role" />
++              </label>
++            </div>
++            <div class="form-grid">
++              <label>Presenti (ID utenti separati da virgola)
++                <input type="text" id="assessment-present-users" />
++              </label>
++              <label>Altri presenti
++                <input type="text" id="assessment-present-other" />
++              </label>
++            </div>
++            <label>Note sessione
++              <textarea id="assessment-notes" rows="3"></textarea>
++            </label>
++            <div class="actions">
++              <button id="save-assessment">Salva dati valutazione</button>
++              <button id="delete-assessment">Elimina</button>
++              <button id="export-assessment-pdf">Esporta PDF</button>
++              <button id="generate-plan">Genera Piano Educativo</button>
++            </div>
++            <div id="assessment-warning" class="warning"></div>
++            <div id="responses-container"></div>
++            <div id="summary-section" class="card nested">
++              <h4>Sintesi profilo</h4>
++              <p><strong>Auto:</strong> <span id="summary-auto"></span></p>
++              <label>Sintesi manuale
++                <textarea id="summary-manual" rows="3"></textarea>
++              </label>
++              <button id="save-summary">Salva sintesi manuale</button>
++            </div>
++            <div id="plans-section" class="card nested">
++              <h4>Piani educativi</h4>
++              <ul id="plans-list"></ul>
++            </div>
++          </div>
++        </div>
++
++        <div id="tab-dashboard" class="tab-content card hidden">
++          <h2>Dashboard</h2>
++          <div class="grid">
++            <div>
++              <h3>Andamento profilo</h3>
++              <select id="dashboard-profile-select"></select>
++              <canvas id="profile-chart" width="600" height="300"></canvas>
++              <div class="compare">
++                <label>Confronta A
++                  <select id="compare-a"></select>
++                </label>
++                <label>Confronta B
++                  <select id="compare-b"></select>
++                </label>
++                <button id="compare-run">Confronta</button>
++                <table id="compare-table"></table>
++              </div>
++            </div>
++            <div>
++              <h3>Obiettivi condivisi</h3>
++              <select id="dashboard-item-select"></select>
++              <button id="export-item-csv">Esporta CSV</button>
++              <button id="export-item-pdf">Esporta PDF</button>
++              <button id="create-group-from-item">Crea gruppo di lavoro</button>
++              <table id="item-dashboard-table"></table>
++            </div>
++          </div>
++        </div>
++
++        <div id="tab-groups" class="tab-content card hidden">
++          <h2>Gruppi di lavoro</h2>
++          <button id="new-group">Crea gruppo di lavoro</button>
++          <table id="groups-table"></table>
++          <div id="group-editor" class="hidden">
++            <h3>Editor gruppo</h3>
++            <div class="form-grid">
++              <label>Titolo
++                <input type="text" id="group-title" />
++              </label>
++              <label>Item
++                <select id="group-item"></select>
++              </label>
++              <label>Area
++                <input type="text" id="group-area" />
++              </label>
++              <label>Supporto min
++                <input type="number" id="group-support-min" min="0" max="3" />
++              </label>
++              <label>Supporto max
++                <input type="number" id="group-support-max" min="0" max="3" />
++              </label>
++            </div>
++            <div class="form-grid">
++              <label>Data inizio
++                <input type="date" id="group-start" />
++              </label>
++              <label>Data fine
++                <input type="date" id="group-end" />
++              </label>
++              <label>Stato
++                <select id="group-status">
++                  <option value="active">Attivo</option>
++                  <option value="closed">Chiuso</option>
++                </select>
++              </label>
++            </div>
++            <label>Note
++              <textarea id="group-notes" rows="3"></textarea>
++            </label>
++            <label>Partecipanti
++              <select id="group-members" multiple></select>
++            </label>
++            <label>Assegnatari
++              <select id="group-assignees" multiple></select>
++            </label>
++            <div class="actions">
++              <button id="save-group">Salva gruppo</button>
++              <button id="delete-group">Elimina gruppo (admin)</button>
++            </div>
++          </div>
++        </div>
++      </section>
++    </main>
++
++    <footer class="app-footer">
++      <p>Strumento educativo/osservativo, non diagnostico o terapeutico.</p>
++    </footer>
++
++    <div id="disclaimer-modal" class="modal hidden">
++      <div class="modal-content">
++        <h2>Disclaimer</h2>
++        <p>
++          EduFAD è uno strumento educativo/osservativo e non ha finalità cliniche, diagnostiche o terapeutiche.
++          I dati inseriti servono per la pianificazione educativa.
++        </p>
++        <button id="disclaimer-ack">Ho compreso</button>
++      </div>
++    </div>
++
++    <script src="/app.js"></script>
++  </body>
++</html>
+diff --git a/backend/static/styles.css b/backend/static/styles.css
+new file mode 100644
+index 0000000000000000000000000000000000000000..f0aa93bb7cc91b8b60b2294bc99d619457df7ce7
+--- /dev/null
++++ b/backend/static/styles.css
+@@ -0,0 +1,141 @@
++body {
++  font-family: Arial, sans-serif;
++  margin: 0;
++  background: #f5f6f8;
++  color: #1f2937;
++}
++
++.app-header {
++  background: #1e3a8a;
++  color: white;
++  padding: 1rem 2rem;
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++}
++
++.subtitle {
++  margin: 0.2rem 0 0;
++  font-size: 0.95rem;
++  opacity: 0.9;
++}
++
++main {
++  padding: 2rem;
++}
++
++.card {
++  background: white;
++  padding: 1.5rem;
++  border-radius: 12px;
++  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.05);
++  margin-bottom: 1.5rem;
++}
++
++.tabs {
++  display: flex;
++  gap: 0.5rem;
++  margin-bottom: 1rem;
++}
++
++.tabs button {
++  background: #e5e7eb;
++  border: none;
++  padding: 0.5rem 1rem;
++  border-radius: 6px;
++  cursor: pointer;
++}
++
++.hidden {
++  display: none;
++}
++
++table {
++  width: 100%;
++  border-collapse: collapse;
++}
++
++table th,
++table td {
++  border-bottom: 1px solid #e5e7eb;
++  padding: 0.5rem;
++  text-align: left;
++}
++
++label {
++  display: block;
++  margin-bottom: 0.5rem;
++}
++
++input,
++select,
++button,
++textarea {
++  font-size: 1rem;
++  padding: 0.4rem 0.6rem;
++}
++
++.inline {
++  display: inline-flex;
++  gap: 0.4rem;
++  align-items: center;
++  margin-left: 1rem;
++}
++
++.error {
++  color: #b91c1c;
++  margin-top: 0.5rem;
++}
++
++.grid {
++  display: grid;
++  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
++  gap: 1rem;
++}
++
++.form-grid {
++  display: grid;
++  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
++  gap: 0.8rem;
++  margin-bottom: 0.8rem;
++}
++
++.actions {
++  display: flex;
++  gap: 0.6rem;
++  flex-wrap: wrap;
++  margin: 0.8rem 0;
++}
++
++.warning {
++  color: #b45309;
++  margin-bottom: 0.8rem;
++}
++
++.nested {
++  margin-top: 1rem;
++  background: #f9fafb;
++}
++
++.app-footer {
++  padding: 1rem 2rem;
++  background: #111827;
++  color: white;
++  font-size: 0.9rem;
++}
++
++.modal {
++  position: fixed;
++  inset: 0;
++  background: rgba(0, 0, 0, 0.6);
++  display: flex;
++  align-items: center;
++  justify-content: center;
++}
++
++.modal-content {
++  background: white;
++  padding: 2rem;
++  border-radius: 10px;
++  max-width: 520px;
++}
+diff --git a/backend/tests/test_core.py b/backend/tests/test_core.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..b63932693d56fb266b2aca8224c60990ed74820b
+--- /dev/null
++++ b/backend/tests/test_core.py
+@@ -0,0 +1,82 @@
++import os
++import sys
++from pathlib import Path
++
++import pytest
++from fastapi.testclient import TestClient
++
++
++@pytest.fixture(scope="module")
++def client(tmp_path_factory):
++    db_path = tmp_path_factory.mktemp("data") / "test.db"
++    os.environ["DATABASE_URL"] = f"sqlite:///{db_path}"
++    os.environ["SECRET_KEY"] = "test-secret"
++    os.environ["ADMIN_USERNAME"] = "admin"
++    os.environ["ADMIN_PASSWORD"] = "admin123"
++    sys.path.append(str(Path(__file__).resolve().parents[1]))
++    from app.main import app
++
++    return TestClient(app)
++
++
++def login(client, username="admin", password="admin123"):
++    response = client.post(
++        "/api/auth/login",
++        data={"username": username, "password": password},
++        headers={"content-type": "application/x-www-form-urlencoded"},
++    )
++    assert response.status_code == 200
++    token = response.json()["access_token"]
++    return {"Authorization": f"Bearer {token}"}
++
++
++def test_auth_and_permissions(client):
++    headers = login(client)
++    response = client.post(
++        "/api/users",
++        json={"username": "editor1", "password": "pass", "role": "editor"},
++        headers=headers,
++    )
++    assert response.status_code == 200
++    editor_headers = login(client, "editor1", "pass")
++    response = client.post(
++        "/api/profiles",
++        json={"code": "P01", "display_name": "Studente Uno", "date_of_birth": "2010-01-01"},
++        headers=editor_headers,
++    )
++    assert response.status_code == 403
++
++
++def test_soft_delete_and_dashboard(client):
++    admin_headers = login(client)
++    profile = client.post(
++        "/api/profiles",
++        json={"code": "P02", "display_name": "Studente Due", "date_of_birth": "2012-05-10"},
++        headers=admin_headers,
++    ).json()
++    editor_headers = login(client, "editor1", "pass")
++    assessment = client.post(
++        "/api/assessments",
++        json={
++            "profile_id": profile["id"],
++            "assessment_date": "2024-02-01",
++            "operator_name": "Operatore",
++            "operator_role": "Educatore",
++            "status": "finalized",
++        },
++        headers=editor_headers,
++    ).json()
++    response = client.post(
++        f"/api/assessments/{assessment['id']}/responses",
++        json={"item_id": "AP01", "support": 1, "freq": "F2", "gen": "G1"},
++        headers=editor_headers,
++    )
++    assert response.status_code == 200
++    dashboard = client.get(f"/api/dashboard/profile/{profile['id']}", headers=editor_headers)
++    assert dashboard.status_code == 200
++    response = client.delete(f"/api/assessments/{assessment['id']}", headers=editor_headers)
++    assert response.status_code == 200
++    listed = client.get("/api/assessments", headers=editor_headers).json()
++    assert assessment["id"] not in [a["id"] for a in listed]
++    admin_list = client.get("/api/assessments?include_deleted=true", headers=admin_headers).json()
++    assert assessment["id"] in [a["id"] for a in admin_list]
+diff --git a/render.yaml b/render.yaml
+new file mode 100644
+index 0000000000000000000000000000000000000000..8fa3cada803447091e7756903908dd2b2a0887ec
+--- /dev/null
++++ b/render.yaml
+@@ -0,0 +1,16 @@
++services:
++  - type: web
++    name: edufad
++    env: python
++    buildCommand: pip install -r backend/requirements.txt
++    startCommand: uvicorn app.main:app --host 0.0.0.0 --port 10000
++    envVars:
++      - key: DATABASE_URL
++        sync: false
++      - key: SECRET_KEY
++        sync: false
++      - key: ADMIN_USERNAME
++        sync: false
++      - key: ADMIN_PASSWORD
++        sync: false
++    rootDir: backend
+ 
+EOF
+)

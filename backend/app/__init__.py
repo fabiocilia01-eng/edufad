@@ -1,0 +1,1 @@
+"""EduFAD backend package."""
