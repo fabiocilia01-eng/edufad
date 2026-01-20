@@ -74,7 +74,8 @@ class AssessmentBase(BaseModel):
     present_user_ids: Optional[List[int]] = None
     present_other: Optional[str] = None
     session_notes: Optional[str] = None
-    status: str = Field("draft", regex="^(draft|finalized)$")
+    stato: str = Field("bozza", pattern="^(bozza|finalizzato)$")
+
 
 
 class AssessmentCreate(AssessmentBase):
