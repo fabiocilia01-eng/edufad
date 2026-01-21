@@ -32,9 +32,7 @@ const api = async (path, options = {}) => {
   // Default JSON content-type (ma NON per form-urlencoded)
   const hasBody = Object.prototype.hasOwnProperty.call(options, "body") && options.body != null;
   const isFormUrlEncoded = headers["Content-Type"] === "application/x-www-form-urlencoded";
-  if (!isFormUrlEncoded && hasBody && typeof options.body === "string" && options.body.startsWith("username=")) {
-    // fallback, ma in pratica usiamo già header form-urlencoded nel login
-  } else if (!isFormUrlEncoded && hasBody && !headers["Content-Type"]) {
+  if (!isFormUrlEncoded && hasBody && !headers["Content-Type"]) {
     headers["Content-Type"] = "application/json";
   }
 
@@ -123,8 +121,8 @@ const renderAssessments = async () => {
       <td>${age}</td>
       <td>${a.status}${deleted}</td>
       <td>
-        <button data-edit="${a.id}">Apri</button>
-        ${state.user?.role === "admin" && a.is_deleted ? `<button data-restore="${a.id}">Ripristina</button>` : ""}
+        <button type="button" data-edit="${a.id}">Apri</button>
+        ${state.user?.role === "admin" && a.is_deleted ? `<button type="button" data-restore="${a.id}">Ripristina</button>` : ""}
       </td>
     </tr>`;
   });
@@ -156,13 +154,10 @@ const renderDashboard = async () => {
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // NOTE: non impostare colori custom se non richiesto
   ctx.beginPath();
-
   data.series.forEach((point, index) => {
     const x = 50 + index * 80;
-    const avg =
-      Object.values(point.areas).reduce((acc, v) => acc + v, 0) / (Object.keys(point.areas).length || 1);
+    const avg = Object.values(point.areas).reduce((acc, v) => acc + v, 0) / (Object.keys(point.areas).length || 1);
     const y = 250 - avg * 50;
 
     if (index === 0) ctx.moveTo(x, y);
@@ -170,7 +165,6 @@ const renderDashboard = async () => {
 
     ctx.fillText(point.date, x - 10, 280);
   });
-
   ctx.stroke();
 
   const compareA = document.getElementById("compare-a");
@@ -217,7 +211,7 @@ const renderGroups = async () => {
       <td>${group.title}</td>
       <td>${group.item_id}</td>
       <td>${group.status}</td>
-      <td><button data-group="${group.id}">Apri</button></td>
+      <td><button type="button" data-group="${group.id}">Apri</button></td>
     </tr>`;
   });
 
@@ -305,23 +299,17 @@ const renderResponses = async () => {
         <div><strong>${item.id}</strong> ${item.label}</div>
         <label>Supporto
           <select data-item="${item.id}" data-field="support">
-            ${[0, 1, 2, 3]
-              .map((v) => `<option value="${v}" ${resp.support === v ? "selected" : ""}>${v}</option>`)
-              .join("")}
+            ${[0, 1, 2, 3].map((v) => `<option value="${v}" ${resp.support === v ? "selected" : ""}>${v}</option>`).join("")}
           </select>
         </label>
         <label>Frequenza
           <select data-item="${item.id}" data-field="freq">
-            ${["", "F0", "F1", "F2", "F3", "F4"]
-              .map((v) => `<option value="${v}" ${resp.freq === v ? "selected" : ""}>${v || "-"}</option>`)
-              .join("")}
+            ${["", "F0", "F1", "F2", "F3", "F4"].map((v) => `<option value="${v}" ${resp.freq === v ? "selected" : ""}>${v || "-"}</option>`).join("")}
           </select>
         </label>
         <label>Generalizzazione
           <select data-item="${item.id}" data-field="gen">
-            ${["", "G0", "G1", "G2", "G3"]
-              .map((v) => `<option value="${v}" ${resp.gen === v ? "selected" : ""}>${v || "-"}</option>`)
-              .join("")}
+            ${["", "G0", "G1", "G2", "G3"].map((v) => `<option value="${v}" ${resp.gen === v ? "selected" : ""}>${v || "-"}</option>`).join("")}
           </select>
         </label>
         <label>Contesto <input data-item="${item.id}" data-field="context" value="${resp.context || ""}" /></label>
@@ -347,7 +335,7 @@ const autosaveResponse = async (itemId) => {
   const operatorRole = document.getElementById("assessment-operator-role")?.value.trim() || "";
 
   if (state.user?.role === "admin" && (!operatorName || !operatorRole)) {
-    return; // admin: blocca compilazione finché non inserisce nome/ruolo
+    return;
   }
 
   const fields = {};
@@ -392,7 +380,7 @@ const loadPlans = async () => {
   list.innerHTML = "";
   plans.forEach((plan) => {
     const li = document.createElement("li");
-    li.innerHTML = `v${plan.version} - ${plan.generated_at} <button data-plan="${plan.id}">PDF</button>`;
+    li.innerHTML = `v${plan.version} - ${plan.generated_at} <button type="button" data-plan="${plan.id}">PDF</button>`;
     list.appendChild(li);
   });
 
@@ -437,7 +425,7 @@ const openGroup = async (groupId) => {
 };
 
 /* -------------------------
-   Disclaimer -> Login flow
+   Disclaimer -> Login gate
    ------------------------- */
 const showDisclaimerGate = () => {
   const disclaimerModal = document.getElementById("disclaimer-modal");
@@ -445,10 +433,8 @@ const showDisclaimerGate = () => {
   const appSection = document.getElementById("app-section");
   const ackBtn = document.getElementById("disclaimer-ack");
 
-  // sicurezza
   if (!disclaimerModal || !loginSection || !ackBtn) return;
 
-  // Se già accettato in questo browser, vai al login direttamente
   const alreadyAck = localStorage.getItem(LS_DISCLAIMER_ACK_KEY) === "1";
 
   if (alreadyAck) {
@@ -458,31 +444,34 @@ const showDisclaimerGate = () => {
     return;
   }
 
-  // Stato iniziale: disclaimer visibile, login nascosto, app nascosta
+  // Stato iniziale
   disclaimerModal.classList.remove("hidden");
   loginSection.classList.add("hidden");
   if (appSection) appSection.classList.add("hidden");
 
-  ackBtn.onclick = () => {
+  // Click su "Ho compreso"
+  ackBtn.onclick = (e) => {
+    // IMPORTANTISSIMO: se il button fosse in un form, evita submit
+    e.preventDefault();
+
     localStorage.setItem(LS_DISCLAIMER_ACK_KEY, "1");
+
     disclaimerModal.classList.add("hidden");
     loginSection.classList.remove("hidden");
   };
 };
 
 const syncDisclaimerAckToServerIfPossible = async () => {
-  // Se l'utente ha già accettato lato server, non fare nulla
   if (!state.user) return;
 
   const localAck = localStorage.getItem(LS_DISCLAIMER_ACK_KEY) === "1";
   if (!localAck) return;
 
-  // Se il server non risulta aggiornato, prova ad aggiornarlo (best-effort)
   if (!state.user.disclaimer_ack_at) {
     try {
       state.user = await api("/api/auth/ack-disclaimer", { method: "POST" });
     } catch (_err) {
-      // non blocchiamo l'app se fallisce
+      // best-effort: non bloccare l'app
     }
   }
 };
@@ -491,15 +480,12 @@ const syncDisclaimerAckToServerIfPossible = async () => {
    Boot + Event wiring
    ------------------------- */
 document.addEventListener("DOMContentLoaded", () => {
-  // 1) Gate iniziale: Disclaimer -> Login
+  // Gate Disclaimer -> Login
   showDisclaimerGate();
 
-  // 2) Pre-carica eventuale token (se già loggato in passato)
-  //    Nota: non facciamo auto-login silenzioso qui; lasciamo esplicito l'accesso.
+  // Carica token salvato (se esiste)
   const saved = localStorage.getItem(LS_TOKEN_KEY);
-  if (saved) {
-    state.token = saved;
-  }
+  if (saved) state.token = saved;
 
   // LOGIN submit
   const loginForm = document.getElementById("login-form");
@@ -507,14 +493,13 @@ document.addEventListener("DOMContentLoaded", () => {
     loginForm.addEventListener("submit", async (event) => {
       event.preventDefault();
 
-      const username = document.getElementById("login-username").value;
-      const password = document.getElementById("login-password").value;
+      const username = document.getElementById("login-username")?.value || "";
+      const password = document.getElementById("login-password")?.value || "";
 
       const errEl = document.getElementById("login-error");
       if (errEl) errEl.textContent = "";
 
       try {
-        // login: form-urlencoded
         const data = await api("/api/auth/login", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -533,7 +518,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const info = document.getElementById("user-info");
         if (info) info.textContent = `${state.user.username} (${state.user.role})`;
 
-        // Init data
+        // Init
         await initChecklist();
         await renderProfiles();
         await renderAssessments();
@@ -542,7 +527,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         showTab("profiles");
 
-        // sincronizza ack disclaimer (se accettato prima del login)
+        // sincronizza ack disclaimer lato server (se accettato prima del login)
         await syncDisclaimerAckToServerIfPossible();
       } catch (err) {
         if (errEl) errEl.textContent = err.message;
@@ -699,12 +684,8 @@ document.addEventListener("DOMContentLoaded", () => {
       end_date: document.getElementById("group-end").value || null,
       notes: document.getElementById("group-notes").value,
       status: document.getElementById("group-status").value,
-      member_profile_ids: Array.from(document.getElementById("group-members").selectedOptions).map((o) =>
-        Number(o.value)
-      ),
-      assignee_user_ids: Array.from(document.getElementById("group-assignees").selectedOptions).map((o) =>
-        Number(o.value)
-      ),
+      member_profile_ids: Array.from(document.getElementById("group-members").selectedOptions).map((o) => Number(o.value)),
+      assignee_user_ids: Array.from(document.getElementById("group-assignees").selectedOptions).map((o) => Number(o.value)),
     };
 
     if (state.currentGroup) {
@@ -717,7 +698,7 @@ document.addEventListener("DOMContentLoaded", () => {
     await renderGroups();
   });
 
-  // Delete group (admin only server-side)
+  // Delete group
   document.getElementById("delete-group")?.addEventListener("click", async () => {
     if (!state.currentGroup) return;
     await api(`/api/work-groups/${state.currentGroup.id}`, { method: "DELETE" });
