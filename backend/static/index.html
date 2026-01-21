@@ -6,6 +6,7 @@
     <title>EduFAD</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
+
   <body>
     <header class="app-header">
       <div>
@@ -18,9 +19,15 @@
     <main>
       <section id="login-section" class="card">
         <h2>Accesso</h2>
-        <form id="login-form">
-          <label>Username <input type="text" id="login-username" required /></label>
-          <label>Password <input type="password" id="login-password" required /></label>
+        <form id="login-form" autocomplete="on">
+          <label>
+            Username
+            <input type="text" id="login-username" required autocomplete="username" />
+          </label>
+          <label>
+            Password
+            <input type="password" id="login-password" required autocomplete="current-password" />
+          </label>
           <button type="submit">Entra</button>
           <div id="login-error" class="error"></div>
         </form>
@@ -28,10 +35,10 @@
 
       <section id="app-section" class="hidden">
         <nav class="tabs">
-          <button data-tab="profiles">Profili</button>
-          <button data-tab="assessments">Valutazioni</button>
-          <button data-tab="dashboard">Dashboard</button>
-          <button data-tab="groups">Gruppi di lavoro</button>
+          <button type="button" data-tab="profiles">Profili</button>
+          <button type="button" data-tab="assessments">Valutazioni</button>
+          <button type="button" data-tab="dashboard">Dashboard</button>
+          <button type="button" data-tab="groups">Gruppi di lavoro</button>
         </nav>
 
         <div id="tab-profiles" class="tab-content card">
@@ -43,63 +50,81 @@
         <div id="tab-assessments" class="tab-content card hidden">
           <h2>Valutazioni</h2>
           <div id="assessments-actions">
-            <button id="new-assessment">Nuova valutazione</button>
+            <button type="button" id="new-assessment">Nuova valutazione</button>
             <label class="inline">
               <input type="checkbox" id="show-deleted" />
               Mostra eliminati (admin)
             </label>
           </div>
+
           <table id="assessments-table"></table>
+
           <div id="assessment-editor" class="hidden">
             <h3>Editor valutazione</h3>
             <div id="assessment-meta"></div>
+
             <div class="form-grid">
-              <label>Profilo
+              <label>
+                Profilo
                 <select id="assessment-profile"></select>
               </label>
-              <label>Data
+              <label>
+                Data
                 <input type="date" id="assessment-date" />
               </label>
-              <label>Stato
+              <label>
+                Stato
                 <select id="assessment-status">
                   <option value="draft">Bozza</option>
                   <option value="finalized">Finalizzato</option>
                 </select>
               </label>
-              <label>Operatore
+              <label>
+                Operatore
                 <input type="text" id="assessment-operator-name" />
               </label>
-              <label>Ruolo operatore
+              <label>
+                Ruolo operatore
                 <input type="text" id="assessment-operator-role" />
               </label>
             </div>
+
             <div class="form-grid">
-              <label>Presenti (ID utenti separati da virgola)
+              <label>
+                Presenti (ID utenti separati da virgola)
                 <input type="text" id="assessment-present-users" />
               </label>
-              <label>Altri presenti
+              <label>
+                Altri presenti
                 <input type="text" id="assessment-present-other" />
               </label>
             </div>
-            <label>Note sessione
+
+            <label>
+              Note sessione
               <textarea id="assessment-notes" rows="3"></textarea>
             </label>
+
             <div class="actions">
-              <button id="save-assessment">Salva dati valutazione</button>
-              <button id="delete-assessment">Elimina</button>
-              <button id="export-assessment-pdf">Esporta PDF</button>
-              <button id="generate-plan">Genera Piano Educativo</button>
+              <button type="button" id="save-assessment">Salva dati valutazione</button>
+              <button type="button" id="delete-assessment">Elimina</button>
+              <button type="button" id="export-assessment-pdf">Esporta PDF</button>
+              <button type="button" id="generate-plan">Genera Piano Educativo</button>
             </div>
+
             <div id="assessment-warning" class="warning"></div>
             <div id="responses-container"></div>
+
             <div id="summary-section" class="card nested">
               <h4>Sintesi profilo</h4>
               <p><strong>Auto:</strong> <span id="summary-auto"></span></p>
-              <label>Sintesi manuale
+              <label>
+                Sintesi manuale
                 <textarea id="summary-manual" rows="3"></textarea>
               </label>
-              <button id="save-summary">Salva sintesi manuale</button>
+              <button type="button" id="save-summary">Salva sintesi manuale</button>
             </div>
+
             <div id="plans-section" class="card nested">
               <h4>Piani educativi</h4>
               <ul id="plans-list"></ul>
@@ -114,23 +139,27 @@
               <h3>Andamento profilo</h3>
               <select id="dashboard-profile-select"></select>
               <canvas id="profile-chart" width="600" height="300"></canvas>
+
               <div class="compare">
-                <label>Confronta A
+                <label>
+                  Confronta A
                   <select id="compare-a"></select>
                 </label>
-                <label>Confronta B
+                <label>
+                  Confronta B
                   <select id="compare-b"></select>
                 </label>
-                <button id="compare-run">Confronta</button>
+                <button type="button" id="compare-run">Confronta</button>
                 <table id="compare-table"></table>
               </div>
             </div>
+
             <div>
               <h3>Obiettivi condivisi</h3>
               <select id="dashboard-item-select"></select>
-              <button id="export-item-csv">Esporta CSV</button>
-              <button id="export-item-pdf">Esporta PDF</button>
-              <button id="create-group-from-item">Crea gruppo di lavoro</button>
+              <button type="button" id="export-item-csv">Esporta CSV</button>
+              <button type="button" id="export-item-pdf">Esporta PDF</button>
+              <button type="button" id="create-group-from-item">Crea gruppo di lavoro</button>
               <table id="item-dashboard-table"></table>
             </div>
           </div>
@@ -138,53 +167,71 @@
 
         <div id="tab-groups" class="tab-content card hidden">
           <h2>Gruppi di lavoro</h2>
-          <button id="new-group">Crea gruppo di lavoro</button>
+          <button type="button" id="new-group">Crea gruppo di lavoro</button>
           <table id="groups-table"></table>
+
           <div id="group-editor" class="hidden">
             <h3>Editor gruppo</h3>
+
             <div class="form-grid">
-              <label>Titolo
+              <label>
+                Titolo
                 <input type="text" id="group-title" />
               </label>
-              <label>Item
+              <label>
+                Item
                 <select id="group-item"></select>
               </label>
-              <label>Area
+              <label>
+                Area
                 <input type="text" id="group-area" />
               </label>
-              <label>Supporto min
+              <label>
+                Supporto min
                 <input type="number" id="group-support-min" min="0" max="3" />
               </label>
-              <label>Supporto max
+              <label>
+                Supporto max
                 <input type="number" id="group-support-max" min="0" max="3" />
               </label>
             </div>
+
             <div class="form-grid">
-              <label>Data inizio
+              <label>
+                Data inizio
                 <input type="date" id="group-start" />
               </label>
-              <label>Data fine
+              <label>
+                Data fine
                 <input type="date" id="group-end" />
               </label>
-              <label>Stato
+              <label>
+                Stato
                 <select id="group-status">
                   <option value="active">Attivo</option>
                   <option value="closed">Chiuso</option>
                 </select>
               </label>
             </div>
-            <label>Note
+
+            <label>
+              Note
               <textarea id="group-notes" rows="3"></textarea>
             </label>
-            <label>Partecipanti
+
+            <label>
+              Partecipanti
               <select id="group-members" multiple></select>
             </label>
-            <label>Assegnatari
+
+            <label>
+              Assegnatari
               <select id="group-assignees" multiple></select>
             </label>
+
             <div class="actions">
-              <button id="save-group">Salva gruppo</button>
-              <button id="delete-group">Elimina gruppo (admin)</button>
+              <button type="button" id="save-group">Salva gruppo</button>
+              <button type="button" id="delete-group">Elimina gruppo (admin)</button>
             </div>
           </div>
         </div>
@@ -195,18 +242,28 @@
       <p>Strumento educativo/osservativo, non diagnostico o terapeutico.</p>
     </footer>
 
-    <div id="disclaimer-modal" class="modal hidden">
+    <!-- DISCLAIMER MODAL
+         Nota: qui NON metto "hidden" di default.
+         Sarà app.js a decidere se mostrarlo o no.
+    -->
+    <div
+      id="disclaimer-modal"
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="disclaimer-title"
+    >
       <div class="modal-content">
-        <h2>Disclaimer</h2>
+        <h2 id="disclaimer-title">Disclaimer</h2>
         <p>
           EduFAD è uno strumento educativo/osservativo e non ha finalità cliniche, diagnostiche o terapeutiche.
           I dati inseriti servono per la pianificazione educativa.
         </p>
         <button id="disclaimer-ack" type="button">Ho compreso</button>
-
       </div>
     </div>
 
-    <script src="/app.js"></script>
+    <!-- Carica JS dopo il DOM -->
+    <script src="/app.js" defer></script>
   </body>
 </html>
