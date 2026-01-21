@@ -89,7 +89,7 @@ class AssessmentUpdate(BaseModel):
     present_user_ids: Optional[List[int]] = None
     present_other: Optional[str] = None
     session_notes: Optional[str] = None
-    status: Optional[str] = Field(None, regex="^(draft|finalized)$")
+    status: Optional[str] = Field(None, pattern="^(draft|finalized)$")
 
 
 class AssessmentOut(AssessmentBase):
@@ -107,8 +107,8 @@ class AssessmentOut(AssessmentBase):
 class ResponseBase(BaseModel):
     item_id: str
     support: int = Field(ge=0, le=3)
-    freq: Optional[str] = Field(None, regex="^F[0-4]$")
-    gen: Optional[str] = Field(None, regex="^G[0-3]$")
+    freq: Optional[str] = Field(None, pattern="^F[0-4]$")
+    gen: Optional[str] = Field(None, pattern="^G[0-3]$")
     context: Optional[str] = None
     note: Optional[str] = None
 
