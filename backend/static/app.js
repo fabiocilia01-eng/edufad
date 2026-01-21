@@ -496,6 +496,46 @@ document.getElementById("delete-group").addEventListener("click", async () => {
   await renderGroups();
 });
 document.addEventListener("DOMContentLoaded", () => {
+
+  // ===== DISCLAIMER FLOW =====
+  const disclaimer = document.getElementById("disclaimer-modal");
+  const loginSection = document.getElementById("login-section");
+  const ackBtn = document.getElementById("disclaimer-ack");
+
+  // Stato iniziale
+  if (disclaimer) disclaimer.classList.remove("hidden");
+  if (loginSection) loginSection.style.display = "none";
+
+  // Click su "Ho compreso"
+  if (ackBtn) {
+    ackBtn.addEventListener("click", async () => {
+      try {
+        const token = localStorage.getItem("token");
+        if (token) {
+          await fetch("/api/auth/ack-disclaimer", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            }
+          });
+        }
+
+        disclaimer.classList.add("hidden");
+        loginSection.style.display = "block";
+      } catch (err) {
+        console.error("Errore conferma disclaimer:", err);
+      }
+    });
+  }
+
+  // ===== RESTO DEL TUO CODICE GIÀ ESISTENTE =====
+  initLogin();
+  loadChecklist();
+  // ecc...
+
+});
+
   const btn = document.getElementById("disclaimer-ack");
   if (!btn) return;
 
