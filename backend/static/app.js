@@ -495,3 +495,35 @@ document.getElementById("delete-group").addEventListener("click", async () => {
   document.getElementById("group-editor").classList.add("hidden");
   await renderGroups();
 });
+document.addEventListener("DOMContentLoaded", () => {
+  const btn = document.getElementById("disclaimer-ack");
+  if (!btn) return;
+
+  btn.addEventListener("click", async () => {
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+      alert("Sessione scaduta. Effettua di nuovo il login.");
+      return;
+    }
+
+    const res = await fetch("/api/auth/ack-disclaimer", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + token
+      }
+    });
+
+    if (!res.ok) {
+      alert("Errore nel salvataggio del disclaimer");
+      return;
+    }
+
+    const modal = document.getElementById("disclaimerModal");
+    if (modal) modal.style.display = "none";
+
+    if (typeof loadMeAndRender === "function") {
+      loadMeAndRender();
+    }
+  });
+});
