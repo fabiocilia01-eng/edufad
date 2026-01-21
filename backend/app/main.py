@@ -60,6 +60,9 @@ from .services import ITEM_TO_AREA, build_plan_content, summarize_assessment
 
 
 app = FastAPI(title="EduFAD")
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 
 @app.on_event("startup")
@@ -736,10 +739,4 @@ from pathlib import Path
 
 static_dir = Path(__file__).resolve().parents[1] / "static"
 app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
-from fastapi import FastAPI
 
-app = FastAPI()
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
