@@ -1,715 +1,453 @@
 /* =========================
    EduFAD SPA - app.js
+   UI stile demo (dark)
    Flusso: DISCLAIMER -> LOGIN -> APP
    ========================= */
 
 const state = {
   token: null,
   user: null,
-  checklist: null,
   profiles: [],
-  assessments: [],
-  currentAssessment: null,
-  users: [],
-  groups: [],
-  currentGroup: null,
+  assessmentsByProfile: new Map(),
+  selectedProfileId: null,
 };
 
 const LS_TOKEN_KEY = "edufad_token";
 const LS_DISCLAIMER_ACK_KEY = "edufad_disclaimer_ack";
 
 /* -------------------------
+   Helpers UI
+------------------------- */
+function toast(msg) {
+  const el = document.getElementById("toast");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 2400);
+}
+
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+}
+
+function fmtDate(isoOrYmd) {
+  // accetta "YYYY-MM-DD" o ISO
+  if (!isoOrYmd) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoOrYmd)) return isoOrYmd;
+  const d = new Date(isoOrYmd);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function setHidden(id, hidden) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle("hidden", !!hidden);
+}
+
+/* -------------------------
    API helper
-   ------------------------- */
-const api = async (path, options = {}) => {
+------------------------- */
+async function api(path, options = {}) {
   const headers = options.headers ? { ...options.headers } : {};
 
   if (state.token) headers["Authorization"] = `Bearer ${state.token}`;
 
   const hasBody = Object.prototype.hasOwnProperty.call(options, "body") && options.body != null;
-  const isFormUrlEncoded = headers["Content-Type"] === "application/x-www-form-urlencoded";
-  if (!isFormUrlEncoded && hasBody && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
-
-  const response = await fetch(path, { ...options, headers });
-
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({ detail: "Errore inatteso." }));
-    throw new Error(data.detail || "Errore inatteso.");
+  const isForm = headers["Content-Type"] === "application/x-www-form-urlencoded";
+  if (!isForm && hasBody && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
   }
 
-  const ct = response.headers.get("content-type") || "";
-  if (ct.includes("application/json")) return response.json();
-  return response;
-};
+  const res = await fetch(path, { ...options, headers });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ detail: "Errore inatteso." }));
+    throw new Error(data.detail || `Errore HTTP ${res.status}`);
+  }
+
+  const ct = res.headers.get("content-type") || "";
+  if (ct.includes("application/json")) return res.json();
+  return res;
+}
 
 /* -------------------------
-   UI helpers
-   ------------------------- */
-const showTab = (tab) => {
-  document.querySelectorAll(".tab-content").forEach((el) => el.classList.add("hidden"));
-  const target = document.getElementById(`tab-${tab}`);
-  if (target) target.classList.remove("hidden");
-};
-
-const computeAge = (dob, assessmentDate) => {
-  const birth = new Date(dob);
-  const ref = new Date(assessmentDate);
-  let age = ref.getFullYear() - birth.getFullYear();
-  const m = ref.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && ref.getDate() < birth.getDate())) age -= 1;
-  return `${age} anni`;
-};
-
-/* -------------------------
-   Render functions
-   ------------------------- */
-const renderProfiles = async () => {
-  const profiles = await api("/api/profiles");
-  state.profiles = profiles;
-
-  const table = document.getElementById("profiles-table");
-  if (table) {
-    table.innerHTML = "<tr><th>Codice</th><th>Nome</th><th>Nascita</th></tr>";
-    profiles.forEach((profile) => {
-      table.innerHTML += `<tr><td>${profile.code}</td><td>${profile.display_name}</td><td>${profile.date_of_birth}</td></tr>`;
-    });
-  }
-
-  const select = document.getElementById("dashboard-profile-select");
-  if (select) select.innerHTML = profiles.map((p) => `<option value="${p.id}">${p.display_name}</option>`).join("");
-
-  const assessmentProfile = document.getElementById("assessment-profile");
-  if (assessmentProfile) {
-    assessmentProfile.innerHTML = profiles.map((p) => `<option value="${p.id}">${p.display_name}</option>`).join("");
-  }
-
-  const groupMembers = document.getElementById("group-members");
-  if (groupMembers) {
-    groupMembers.innerHTML = profiles.map((p) => `<option value="${p.id}">${p.display_name}</option>`).join("");
-  }
-};
-
-const renderAssessments = async () => {
-  const showDeleted = document.getElementById("show-deleted");
-  const includeDeleted = showDeleted ? showDeleted.checked : false;
-
-  const assessments = await api(`/api/assessments${includeDeleted ? "?include_deleted=true" : ""}`);
-  state.assessments = assessments;
-
-  const profileMap = Object.fromEntries(state.profiles.map((p) => [p.id, p]));
-
-  const table = document.getElementById("assessments-table");
-  if (!table) return;
-
-  table.innerHTML = "<tr><th>ID</th><th>Profilo</th><th>Data</th><th>Età</th><th>Stato</th><th>Azioni</th></tr>";
-  assessments.forEach((a) => {
-    const profile = profileMap[a.profile_id];
-    const age = profile ? computeAge(profile.date_of_birth, a.assessment_date) : "-";
-    const deleted = a.is_deleted ? " (eliminato)" : "";
-    table.innerHTML += `<tr>
-      <td>${a.id}</td>
-      <td>${profile?.display_name || a.profile_id}</td>
-      <td>${a.assessment_date}</td>
-      <td>${age}</td>
-      <td>${a.status}${deleted}</td>
-      <td>
-        <button type="button" data-edit="${a.id}">Apri</button>
-        ${state.user?.role === "admin" && a.is_deleted ? `<button type="button" data-restore="${a.id}">Ripristina</button>` : ""}
-      </td>
-    </tr>`;
-  });
-
-  table.querySelectorAll("button[data-edit]").forEach((btn) => {
-    btn.addEventListener("click", () => openAssessment(btn.dataset.edit));
-  });
-
-  table.querySelectorAll("button[data-restore]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      await api(`/api/assessments/${btn.dataset.restore}/restore`, { method: "POST" });
-      await renderAssessments();
-    });
-  });
-};
-
-const renderDashboard = async () => {
-  const sel = document.getElementById("dashboard-profile-select");
-  if (!sel) return;
-
-  const profileId = sel.value;
-  if (!profileId) return;
-
-  const data = await api(`/api/dashboard/profile/${profileId}`);
-
-  const canvas = document.getElementById("profile-chart");
-  if (!canvas) return;
-
-  const ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  ctx.beginPath();
-  data.series.forEach((point, index) => {
-    const x = 50 + index * 80;
-    const avg = Object.values(point.areas).reduce((acc, v) => acc + v, 0) / (Object.keys(point.areas).length || 1);
-    const y = 250 - avg * 50;
-
-    if (index === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-
-    ctx.fillText(point.date, x - 10, 280);
-  });
-  ctx.stroke();
-
-  const compareA = document.getElementById("compare-a");
-  const compareB = document.getElementById("compare-b");
-  if (!compareA || !compareB) return;
-
-  const options = state.assessments
-    .filter((a) => a.profile_id === Number(profileId))
-    .map((a) => `<option value="${a.id}">${a.assessment_date} (${a.status})</option>`)
-    .join("");
-
-  compareA.innerHTML = options;
-  compareB.innerHTML = options;
-};
-
-const renderItemDashboard = async () => {
-  const itemSel = document.getElementById("dashboard-item-select");
-  if (!itemSel) return;
-
-  const itemId = itemSel.value;
-  if (!itemId) return;
-
-  const data = await api(`/api/dashboard/item/${itemId}?max_support=1`);
-
-  const table = document.getElementById("item-dashboard-table");
-  if (!table) return;
-
-  table.innerHTML = "<tr><th>Studente</th><th>Data</th><th>Supporto</th></tr>";
-  data.results.forEach((row) => {
-    table.innerHTML += `<tr><td>${row.profile_name}</td><td>${row.assessment_date}</td><td>${row.support}</td></tr>`;
-  });
-};
-
-const renderGroups = async () => {
-  const groups = await api("/api/work-groups");
-  state.groups = groups;
-
-  const table = document.getElementById("groups-table");
-  if (!table) return;
-
-  table.innerHTML = "<tr><th>Titolo</th><th>Item</th><th>Status</th><th>Azioni</th></tr>";
-  groups.forEach((group) => {
-    table.innerHTML += `<tr>
-      <td>${group.title}</td>
-      <td>${group.item_id}</td>
-      <td>${group.status}</td>
-      <td><button type="button" data-group="${group.id}">Apri</button></td>
-    </tr>`;
-  });
-
-  table.querySelectorAll("button[data-group]").forEach((btn) => {
-    btn.addEventListener("click", () => openGroup(btn.dataset.group));
-  });
-};
-
-const initChecklist = async () => {
-  state.checklist = await api("/api/checklist");
-
-  const itemSelect = document.getElementById("dashboard-item-select");
-  if (itemSelect) {
-    itemSelect.innerHTML = state.checklist.areas
-      .flatMap((area) => area.items.map((item) => `<option value="${item.id}">${item.id} ${item.label}</option>`))
-      .join("");
-  }
-
-  const groupItem = document.getElementById("group-item");
-  if (groupItem && itemSelect) groupItem.innerHTML = itemSelect.innerHTML;
-};
-
-const loadUsers = async () => {
-  state.users = await api("/api/users/basic");
-
-  const assignees = document.getElementById("group-assignees");
-  if (!assignees) return;
-
-  assignees.innerHTML = state.users
-    .map((u) => `<option value="${u.id}">${u.username} (${u.role})</option>`)
-    .join("");
-};
-
-/* -------------------------
-   PROFILI: crea profilo (admin)
-   ------------------------- */
-const createProfile = async () => {
-  const errEl = document.getElementById("profile-error");
-  if (errEl) errEl.textContent = "";
-
-  const code = (document.getElementById("profile-code")?.value || "").trim();
-  const displayName = (document.getElementById("profile-display-name")?.value || "").trim();
-  const dob = document.getElementById("profile-dob")?.value || "";
-
-  if (!code || !displayName || !dob) {
-    if (errEl) errEl.textContent = "Compila Codice, Nome e Data di nascita.";
-    return;
-  }
-
-  try {
-    await api("/api/profiles", {
-      method: "POST",
-      body: JSON.stringify({
-        code: code,
-        display_name: displayName,
-        date_of_birth: dob,
-      }),
-    });
-
-    // reset form
-    document.getElementById("profile-code").value = "";
-    document.getElementById("profile-display-name").value = "";
-    document.getElementById("profile-dob").value = "";
-
-    await renderProfiles();
-  } catch (err) {
-    if (errEl) errEl.textContent = err.message;
-  }
-};
-
-/* -------------------------
-   Assessment editor
-   ------------------------- */
-const openAssessment = async (assessmentId) => {
-  const assessment = await api(`/api/assessments/${assessmentId}`);
-  state.currentAssessment = assessment;
-
-  document.getElementById("assessment-editor")?.classList.remove("hidden");
-  document.getElementById("assessment-profile").value = assessment.profile_id;
-  document.getElementById("assessment-date").value = assessment.assessment_date;
-  document.getElementById("assessment-status").value = assessment.status;
-  document.getElementById("assessment-operator-name").value = assessment.operator_name;
-  document.getElementById("assessment-operator-role").value = assessment.operator_role;
-  document.getElementById("assessment-present-users").value = (assessment.present_user_ids || []).join(", ");
-  document.getElementById("assessment-present-other").value = assessment.present_other || "";
-  document.getElementById("assessment-notes").value = assessment.session_notes || "";
-  document.getElementById("assessment-meta").textContent = `ID ${assessment.id}`;
-
-  await renderResponses();
-  await loadSummary();
-  await loadPlans();
-};
-
-const renderResponses = async () => {
-  const container = document.getElementById("responses-container");
-  const assessment = state.currentAssessment;
-  if (!assessment || !container) return;
-
-  const warning = document.getElementById("assessment-warning");
-  if (warning) {
-    if (state.user?.role === "admin" && (!assessment.operator_name || !assessment.operator_role)) {
-      warning.textContent = "Per gli admin, inserire nome e ruolo operatore prima di compilare le risposte.";
-    } else {
-      warning.textContent = "";
-    }
-  }
-
-  const existing = await api(`/api/assessments/${assessment.id}/responses`);
-  const responseMap = Object.fromEntries(existing.map((r) => [r.item_id, r]));
-
-  container.innerHTML = "";
-  state.checklist.areas.forEach((area) => {
-    const areaBlock = document.createElement("div");
-    areaBlock.innerHTML = `<h4>${area.name}</h4>`;
-
-    area.items.forEach((item) => {
-      const resp = responseMap[item.id] || {};
-      const row = document.createElement("div");
-      row.className = "form-grid";
-
-      row.innerHTML = `
-        <div><strong>${item.id}</strong> ${item.label}</div>
-        <label>Supporto
-          <select data-item="${item.id}" data-field="support">
-            ${[0, 1, 2, 3].map((v) => `<option value="${v}" ${resp.support === v ? "selected" : ""}>${v}</option>`).join("")}
-          </select>
-        </label>
-        <label>Frequenza
-          <select data-item="${item.id}" data-field="freq">
-            ${["", "F0", "F1", "F2", "F3", "F4"].map((v) => `<option value="${v}" ${resp.freq === v ? "selected" : ""}>${v || "-"}</option>`).join("")}
-          </select>
-        </label>
-        <label>Generalizzazione
-          <select data-item="${item.id}" data-field="gen">
-            ${["", "G0", "G1", "G2", "G3"].map((v) => `<option value="${v}" ${resp.gen === v ? "selected" : ""}>${v || "-"}</option>`).join("")}
-          </select>
-        </label>
-        <label>Contesto <input data-item="${item.id}" data-field="context" value="${resp.context || ""}" /></label>
-        <label>Nota <input data-item="${item.id}" data-field="note" value="${resp.note || ""}" /></label>
-      `;
-
-      areaBlock.appendChild(row);
-    });
-
-    container.appendChild(areaBlock);
-  });
-
-  container.querySelectorAll("select,input").forEach((el) => {
-    el.addEventListener("change", () => autosaveResponse(el.dataset.item));
-  });
-};
-
-const autosaveResponse = async (itemId) => {
-  const assessment = state.currentAssessment;
-  if (!assessment) return;
-
-  const operatorName = document.getElementById("assessment-operator-name")?.value.trim() || "";
-  const operatorRole = document.getElementById("assessment-operator-role")?.value.trim() || "";
-  if (state.user?.role === "admin" && (!operatorName || !operatorRole)) return;
-
-  const fields = {};
-  document.querySelectorAll(`[data-item="${itemId}"]`).forEach((el) => {
-    fields[el.dataset.field] = el.value || null;
-  });
-
-  await api(`/api/assessments/${assessment.id}/responses`, {
-    method: "POST",
-    body: JSON.stringify({
-      item_id: itemId,
-      support: Number(fields.support),
-      freq: fields.freq || null,
-      gen: fields.gen || null,
-      context: fields.context || null,
-      note: fields.note || null,
-    }),
-  });
-
-  await loadSummary();
-};
-
-const loadSummary = async () => {
-  const autoEl = document.getElementById("summary-auto");
-  const manualEl = document.getElementById("summary-manual");
-
-  try {
-    const summary = await api(`/api/assessments/${state.currentAssessment.id}/summary`);
-    if (autoEl) autoEl.textContent = summary.auto_text || "";
-    if (manualEl) manualEl.value = summary.manual_text || "";
-  } catch (_err) {
-    if (autoEl) autoEl.textContent = "";
-    if (manualEl) manualEl.value = "";
-  }
-};
-
-const loadPlans = async () => {
-  const plans = await api(`/api/assessments/${state.currentAssessment.id}/plans`);
-  const list = document.getElementById("plans-list");
-  if (!list) return;
-
-  list.innerHTML = "";
-  plans.forEach((plan) => {
-    const li = document.createElement("li");
-    li.innerHTML = `v${plan.version} - ${plan.generated_at} <button type="button" data-plan="${plan.id}">PDF</button>`;
-    list.appendChild(li);
-  });
-
-  list.querySelectorAll("button[data-plan]").forEach((btn) => {
-    btn.addEventListener("click", () => window.open(`/api/exports/plan/${btn.dataset.plan}.pdf`, "_blank"));
-  });
-};
-
-/* -------------------------
-   Groups
-   ------------------------- */
-const openGroup = async (groupId) => {
-  const group = state.groups.find((g) => g.id === Number(groupId));
-  if (!group) return;
-
-  state.currentGroup = group;
-
-  document.getElementById("group-editor")?.classList.remove("hidden");
-  document.getElementById("group-title").value = group.title;
-  document.getElementById("group-item").value = group.item_id;
-  document.getElementById("group-area").value = group.area_id;
-  document.getElementById("group-support-min").value = group.support_min;
-  document.getElementById("group-support-max").value = group.support_max;
-  document.getElementById("group-start").value = group.start_date || "";
-  document.getElementById("group-end").value = group.end_date || "";
-  document.getElementById("group-notes").value = group.notes || "";
-  document.getElementById("group-status").value = group.status;
-
-  const membersEl = document.getElementById("group-members");
-  if (membersEl) {
-    Array.from(membersEl.options).forEach((opt) => {
-      opt.selected = group.members.includes(Number(opt.value));
-    });
-  }
-
-  const assigneesEl = document.getElementById("group-assignees");
-  if (assigneesEl) {
-    Array.from(assigneesEl.options).forEach((opt) => {
-      opt.selected = group.assignees.includes(Number(opt.value));
-    });
-  }
-};
-
-/* -------------------------
-   Disclaimer -> Login gate
-   ------------------------- */
-const showDisclaimerGate = () => {
-  const disclaimerModal = document.getElementById("disclaimer-modal");
-  const loginSection = document.getElementById("login-section");
-  const appSection = document.getElementById("app-section");
-  const ackBtn = document.getElementById("disclaimer-ack");
-
-  if (!disclaimerModal || !loginSection || !ackBtn) return;
-
+   Disclaimer Gate (solo client)
+------------------------- */
+function showDisclaimerGate() {
+  const modal = document.getElementById("disclaimer-modal");
+  const ack = document.getElementById("disclaimer-ack");
   const alreadyAck = localStorage.getItem(LS_DISCLAIMER_ACK_KEY) === "1";
 
+  if (!modal || !ack) return;
+
   if (alreadyAck) {
-    disclaimerModal.classList.add("hidden");
-    loginSection.classList.remove("hidden");
-    if (appSection) appSection.classList.add("hidden");
+    modal.classList.add("hidden");
     return;
   }
 
-  disclaimerModal.classList.remove("hidden");
-  loginSection.classList.add("hidden");
-  if (appSection) appSection.classList.add("hidden");
-
-  ackBtn.onclick = (e) => {
+  modal.classList.remove("hidden");
+  ack.onclick = (e) => {
     e.preventDefault();
     localStorage.setItem(LS_DISCLAIMER_ACK_KEY, "1");
-    disclaimerModal.classList.add("hidden");
-    loginSection.classList.remove("hidden");
+    modal.classList.add("hidden");
   };
-};
+}
 
-const syncDisclaimerAckToServerIfPossible = async () => {
+async function syncDisclaimerAckToServerIfPossible() {
+  // best effort: se l’utente è loggato e ha ack nel browser, prova a scriverlo sul server
   if (!state.user) return;
-
   const localAck = localStorage.getItem(LS_DISCLAIMER_ACK_KEY) === "1";
   if (!localAck) return;
 
   if (!state.user.disclaimer_ack_at) {
     try {
-      state.user = await api("/api/auth/ack-disclaimer", { method: "POST" });
-    } catch (_err) {}
+      await api("/api/auth/ack-disclaimer", { method: "POST" });
+      state.user = await api("/api/auth/me");
+    } catch (_e) {
+      // non bloccare
+    }
   }
-};
+}
 
 /* -------------------------
-   Boot + Event wiring
-   ------------------------- */
+   Data loading
+------------------------- */
+async function loadProfiles() {
+  const profiles = await api("/api/profiles");
+  state.profiles = profiles || [];
+  return state.profiles;
+}
+
+async function loadAssessmentsForProfile(profileId) {
+  // se il backend ha include_deleted, ok; qui per default no
+  const list = await api("/api/assessments");
+  // filtra lato client per profile_id
+  const filtered = (list || []).filter((a) => a.profile_id === Number(profileId));
+  state.assessmentsByProfile.set(Number(profileId), filtered);
+  return filtered;
+}
+
+/* -------------------------
+   Rendering
+------------------------- */
+function renderProfilesList() {
+  const list = document.getElementById("profilesList");
+  if (!list) return;
+
+  const q = (document.getElementById("profileSearch")?.value || "").toLowerCase().trim();
+  const profiles = [...state.profiles].sort((a, b) =>
+    (a.display_name || "").localeCompare(b.display_name || "")
+  );
+
+  const filtered = q
+    ? profiles.filter((p) => (p.display_name || "").toLowerCase().includes(q) || (p.code || "").toLowerCase().includes(q))
+    : profiles;
+
+  list.innerHTML = "";
+
+  if (!filtered.length) {
+    list.innerHTML = `<div class="muted small">Nessun profilo. Clicca “+ Profilo”.</div>`;
+    return;
+  }
+
+  for (const p of filtered) {
+    const isSel = Number(state.selectedProfileId) === Number(p.id);
+    const item = document.createElement("div");
+    item.className = "item";
+    item.innerHTML = `
+      <div class="left">
+        <div class="title">${escapeHtml(p.display_name)} <span class="muted small mono">(${escapeHtml(p.code)})</span></div>
+        <div class="meta">Nascita: ${escapeHtml(p.date_of_birth || "-")}</div>
+      </div>
+      <div class="right">
+        <span class="badge">${isSel ? "Selezionato" : "Apri"}</span>
+      </div>
+    `;
+    item.onclick = () => selectProfile(p.id);
+    list.appendChild(item);
+  }
+}
+
+function renderRightEmpty() {
+  const pane = document.getElementById("rightPane");
+  if (!pane) return;
+  pane.innerHTML = `
+    <div class="hint">
+      <b>Flusso consigliato:</b>
+      <ol>
+        <li>Crea o seleziona un profilo.</li>
+        <li>Clicca “+ Rilevazione”.</li>
+        <li>Apri la rilevazione dall’elenco.</li>
+      </ol>
+      <div class="sep"></div>
+      <div class="hint">
+        Se “+ Rilevazione” non funziona, di solito manca un profilo selezionato oppure il server risponde 500 su /api/assessments.
+      </div>
+    </div>
+  `;
+}
+
+function renderRightForProfile(profile, assessments) {
+  const pane = document.getElementById("rightPane");
+  if (!pane) return;
+
+  const rows = (assessments || [])
+    .sort((a, b) => (a.assessment_date > b.assessment_date ? -1 : 1))
+    .map((a) => {
+      return `
+        <div class="item" data-assessment="${a.id}">
+          <div class="left">
+            <div class="title">${escapeHtml(fmtDate(a.assessment_date))}</div>
+            <div class="meta">Stato: ${escapeHtml(a.status || "-")} • ID: <span class="mono">${a.id}</span></div>
+          </div>
+          <div class="right">
+            <button class="ghost" type="button" data-open="${a.id}">Apri</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  pane.innerHTML = `
+    <div class="card" style="box-shadow:none">
+      <div class="hd">
+        <h2>Rilevazioni</h2>
+        <span class="badge">${(assessments || []).length}</span>
+      </div>
+      <div class="bd">
+        ${rows || `<div class="muted small">Nessuna rilevazione. Clicca “+ Rilevazione”.</div>`}
+      </div>
+    </div>
+  `;
+
+  pane.querySelectorAll("button[data-open]").forEach((btn) => {
+    btn.addEventListener("click", () => openAssessment(btn.dataset.open));
+  });
+}
+
+/* -------------------------
+   Actions
+------------------------- */
+async function selectProfile(profileId) {
+  state.selectedProfileId = Number(profileId);
+
+  const profile = state.profiles.find((p) => Number(p.id) === Number(profileId));
+  document.getElementById("rightTitle").textContent = profile ? profile.display_name : "Profilo";
+  document.getElementById("rightSubtitle").textContent = profile ? `Codice: ${profile.code}` : "";
+
+  const btnNew = document.getElementById("btnNewAssessment");
+  const btnPdf = document.getElementById("btnExportAssessmentPDF");
+  if (btnNew) btnNew.disabled = !profile;
+  if (btnPdf) btnPdf.disabled = true;
+
+  renderProfilesList();
+
+  try {
+    const assessments = await loadAssessmentsForProfile(profileId);
+    renderRightForProfile(profile, assessments);
+  } catch (e) {
+    // Qui intercettiamo il 500 su /api/assessments e lo rendiamo “visibile” invece di bloccare l’app
+    toast(`Errore caricamento valutazioni: ${e.message}`);
+    renderRightForProfile(profile, []);
+  }
+}
+
+async function openAssessment(assessmentId) {
+  // Per ora: apriamo in nuova scheda la API PDF se esiste oppure lasciamo un messaggio
+  // In una fase successiva possiamo montare qui l’editor completo (responses, dashboard, piani).
+  toast(`Apertura rilevazione ID ${assessmentId}`);
+  const btnPdf = document.getElementById("btnExportAssessmentPDF");
+  if (btnPdf) {
+    btnPdf.disabled = false;
+    btnPdf.onclick = () => window.open(`/api/exports/assessment/${assessmentId}.pdf`, "_blank");
+  }
+}
+
+async function createAssessment() {
+  if (!state.selectedProfileId) {
+    toast("Seleziona prima un profilo.");
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const date = prompt("Data rilevazione (YYYY-MM-DD):", today);
+  if (!date) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) {
+    toast("Formato data non valido.");
+    return;
+  }
+
+  const payload = {
+    profile_id: Number(state.selectedProfileId),
+    assessment_date: date.trim(),
+    operator_name: state.user?.username || "",
+    operator_role: state.user?.role === "admin" ? "" : "Editor",
+    status: "draft",
+  };
+
+  try {
+    await api("/api/assessments", { method: "POST", body: JSON.stringify(payload) });
+    toast("Rilevazione creata.");
+    await selectProfile(state.selectedProfileId); // ricarica lista
+  } catch (e) {
+    toast(`Errore creazione rilevazione: ${e.message}`);
+  }
+}
+
+function openProfileModal() {
+  setHidden("profile-modal", false);
+  document.getElementById("profile-error").textContent = "";
+  document.getElementById("profile-code").value = "";
+  document.getElementById("profile-name").value = "";
+  document.getElementById("profile-dob").value = "";
+}
+
+function closeProfileModal() {
+  setHidden("profile-modal", true);
+}
+
+async function createProfile() {
+  const code = document.getElementById("profile-code").value.trim();
+  const name = document.getElementById("profile-name").value.trim();
+  const dob = document.getElementById("profile-dob").value;
+
+  const errEl = document.getElementById("profile-error");
+  errEl.textContent = "";
+
+  if (!code || !name || !dob) {
+    errEl.textContent = "Compila tutti i campi (codice, nome, data di nascita).";
+    return;
+  }
+
+  const payload = { code, display_name: name, date_of_birth: dob };
+
+  try {
+    await api("/api/profiles", { method: "POST", body: JSON.stringify(payload) });
+    toast("Profilo salvato.");
+    closeProfileModal();
+    await loadProfiles();
+    renderProfilesList();
+  } catch (e) {
+    errEl.textContent = e.message;
+  }
+}
+
+/* -------------------------
+   Auth
+------------------------- */
+async function doLogin(username, password) {
+  const data = await api("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username, password }),
+  });
+  state.token = data.access_token;
+  localStorage.setItem(LS_TOKEN_KEY, state.token);
+
+  state.user = await api("/api/auth/me");
+  document.getElementById("user-info").textContent = `${state.user.username} (${state.user.role})`;
+
+  setHidden("login-section", true);
+  setHidden("app-section", false);
+
+  const logoutBtn = document.getElementById("btnLogout");
+  if (logoutBtn) logoutBtn.style.display = "inline-flex";
+
+  await syncDisclaimerAckToServerIfPossible();
+  await loadProfiles();
+  renderProfilesList();
+  renderRightEmpty();
+  toast("Login effettuato.");
+}
+
+function doLogout() {
+  state.token = null;
+  state.user = null;
+  state.profiles = [];
+  state.assessmentsByProfile = new Map();
+  state.selectedProfileId = null;
+
+  localStorage.removeItem(LS_TOKEN_KEY);
+
+  document.getElementById("user-info").textContent = "Non autenticato";
+  setHidden("app-section", true);
+  setHidden("login-section", false);
+
+  const logoutBtn = document.getElementById("btnLogout");
+  if (logoutBtn) logoutBtn.style.display = "none";
+
+  toast("Logout.");
+}
+
+/* -------------------------
+   Boot
+------------------------- */
 document.addEventListener("DOMContentLoaded", () => {
   showDisclaimerGate();
 
+  // token pre-esistente
   const saved = localStorage.getItem(LS_TOKEN_KEY);
   if (saved) state.token = saved;
 
-  // LOGIN
+  // wire login
   const loginForm = document.getElementById("login-form");
   if (loginForm) {
-    loginForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-
-      const username = document.getElementById("login-username")?.value || "";
-      const password = document.getElementById("login-password")?.value || "";
-
+    loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
       const errEl = document.getElementById("login-error");
-      if (errEl) errEl.textContent = "";
+      errEl.textContent = "";
+
+      const username = document.getElementById("login-username").value;
+      const password = document.getElementById("login-password").value;
 
       try {
-        const data = await api("/api/auth/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams({ username, password }),
-        });
-
-        state.token = data.access_token;
-        localStorage.setItem(LS_TOKEN_KEY, state.token);
-
-        state.user = await api("/api/auth/me");
-
-        document.getElementById("login-section")?.classList.add("hidden");
-        document.getElementById("app-section")?.classList.remove("hidden");
-
-        const info = document.getElementById("user-info");
-        if (info) info.textContent = `${state.user.username} (${state.user.role})`;
-
-        await initChecklist();
-        await renderProfiles();
-        await renderAssessments();
-        await loadUsers();
-        await renderGroups();
-
-        showTab("profiles");
-        await syncDisclaimerAckToServerIfPossible();
+        await doLogin(username, password);
       } catch (err) {
-        if (errEl) errEl.textContent = err.message;
+        errEl.textContent = err.message;
       }
     });
   }
 
-  // PROFILI: salva profilo
-  document.getElementById("save-profile")?.addEventListener("click", createProfile);
+  // logout
+  document.getElementById("btnLogout")?.addEventListener("click", doLogout);
 
-  // Tabs
-  document.querySelectorAll(".tabs button").forEach((button) => {
-    button.addEventListener("click", () => {
-      const tab = button.dataset.tab;
-      showTab(tab);
-      if (tab === "dashboard") {
-        renderDashboard();
-        renderItemDashboard();
-      }
-    });
+  // profiles search
+  document.getElementById("profileSearch")?.addEventListener("input", renderProfilesList);
+
+  // new profile modal
+  document.getElementById("btnNewProfile")?.addEventListener("click", openProfileModal);
+  document.getElementById("btnCloseProfileModal")?.addEventListener("click", closeProfileModal);
+  document.getElementById("profile-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await createProfile();
   });
 
-  document.getElementById("dashboard-profile-select")?.addEventListener("change", renderDashboard);
-  document.getElementById("dashboard-item-select")?.addEventListener("change", renderItemDashboard);
+  // new assessment
+  document.getElementById("btnNewAssessment")?.addEventListener("click", createAssessment);
 
-  document.getElementById("export-item-csv")?.addEventListener("click", () => {
-    const itemId = document.getElementById("dashboard-item-select")?.value;
-    if (itemId) window.open(`/api/exports/item/${itemId}.csv`, "_blank");
-  });
+  // se hai token salvato, prova auto-me e carica UI
+  (async () => {
+    if (!state.token) return;
+    try {
+      state.user = await api("/api/auth/me");
+      document.getElementById("user-info").textContent = `${state.user.username} (${state.user.role})`;
+      setHidden("login-section", true);
+      setHidden("app-section", false);
+      document.getElementById("btnLogout").style.display = "inline-flex";
 
-  document.getElementById("export-item-pdf")?.addEventListener("click", () => {
-    const itemId = document.getElementById("dashboard-item-select")?.value;
-    if (itemId) window.open(`/api/exports/item/${itemId}.pdf`, "_blank");
-  });
-
-  document.getElementById("show-deleted")?.addEventListener("change", renderAssessments);
-
-  // Nuova valutazione
-  document.getElementById("new-assessment")?.addEventListener("click", async () => {
-    if (!state.profiles.length) {
-      alert("Prima crea almeno un profilo (tab Profili).");
-      return;
+      await syncDisclaimerAckToServerIfPossible();
+      await loadProfiles();
+      renderProfilesList();
+      renderRightEmpty();
+    } catch (_e) {
+      // token scaduto/non valido
+      localStorage.removeItem(LS_TOKEN_KEY);
+      state.token = null;
     }
-
-    const payload = {
-      profile_id: state.profiles[0].id,
-      assessment_date: new Date().toISOString().slice(0, 10),
-      operator_name: state.user.username,
-      operator_role: state.user.role === "admin" ? "" : "Editor",
-      status: "draft",
-    };
-
-    const assessment = await api("/api/assessments", { method: "POST", body: JSON.stringify(payload) });
-    await renderAssessments();
-    await openAssessment(assessment.id);
-  });
-
-  document.getElementById("save-assessment")?.addEventListener("click", async () => {
-    const assessment = state.currentAssessment;
-    if (!assessment) return;
-
-    const payload = {
-      profile_id: Number(document.getElementById("assessment-profile").value),
-      assessment_date: document.getElementById("assessment-date").value,
-      operator_name: document.getElementById("assessment-operator-name").value,
-      operator_role: document.getElementById("assessment-operator-role").value,
-      present_user_ids: (document.getElementById("assessment-present-users").value || "")
-        .split(",")
-        .map((v) => Number(v.trim()))
-        .filter((v) => !Number.isNaN(v)),
-      present_other: document.getElementById("assessment-present-other").value,
-      session_notes: document.getElementById("assessment-notes").value,
-      status: document.getElementById("assessment-status").value,
-    };
-
-    const updated = await api(`/api/assessments/${assessment.id}`, { method: "PATCH", body: JSON.stringify(payload) });
-    state.currentAssessment = updated;
-    await renderAssessments();
-  });
-
-  document.getElementById("delete-assessment")?.addEventListener("click", async () => {
-    if (!state.currentAssessment) return;
-    await api(`/api/assessments/${state.currentAssessment.id}`, { method: "DELETE" });
-    document.getElementById("assessment-editor")?.classList.add("hidden");
-    await renderAssessments();
-  });
-
-  document.getElementById("export-assessment-pdf")?.addEventListener("click", () => {
-    if (!state.currentAssessment) return;
-    window.open(`/api/exports/assessment/${state.currentAssessment.id}.pdf`, "_blank");
-  });
-
-  document.getElementById("generate-plan")?.addEventListener("click", async () => {
-    if (!state.currentAssessment) return;
-    await api(`/api/assessments/${state.currentAssessment.id}/plans`, { method: "POST" });
-    await loadPlans();
-  });
-
-  document.getElementById("save-summary")?.addEventListener("click", async () => {
-    if (!state.currentAssessment) return;
-    await api(`/api/assessments/${state.currentAssessment.id}/summary`, {
-      method: "PATCH",
-      body: JSON.stringify({ manual_text: document.getElementById("summary-manual").value }),
-    });
-  });
-
-  document.getElementById("compare-run")?.addEventListener("click", async () => {
-    const a = document.getElementById("compare-a")?.value;
-    const b = document.getElementById("compare-b")?.value;
-    if (!a || !b) return;
-
-    const data = await api(`/api/dashboard/compare?assessment_a=${a}&assessment_b=${b}`);
-    const table = document.getElementById("compare-table");
-    if (!table) return;
-
-    table.innerHTML = "<tr><th>Item</th><th>Delta</th></tr>";
-    data.deltas.forEach((delta) => {
-      table.innerHTML += `<tr><td>${delta.item_id}</td><td>${delta.delta}</td></tr>`;
-    });
-  });
-
-  document.getElementById("create-group-from-item")?.addEventListener("click", () => {
-    const itemId = document.getElementById("dashboard-item-select")?.value;
-    if (!itemId) return;
-
-    document.getElementById("group-item").value = itemId;
-    document.getElementById("group-area").value = itemId.slice(0, 2);
-    document.getElementById("group-support-min").value = 0;
-    document.getElementById("group-support-max").value = 1;
-    document.getElementById("group-editor")?.classList.remove("hidden");
-    showTab("groups");
-  });
-
-  document.getElementById("new-group")?.addEventListener("click", () => {
-    state.currentGroup = null;
-    document.getElementById("group-editor")?.classList.remove("hidden");
-    document.getElementById("group-title").value = "";
-    document.getElementById("group-notes").value = "";
-  });
-
-  document.getElementById("save-group")?.addEventListener("click", async () => {
-    const payload = {
-      title: document.getElementById("group-title").value,
-      item_id: document.getElementById("group-item").value,
-      area_id: document.getElementById("group-area").value,
-      support_min: Number(document.getElementById("group-support-min").value),
-      support_max: Number(document.getElementById("group-support-max").value),
-      start_date: document.getElementById("group-start").value || null,
-      end_date: document.getElementById("group-end").value || null,
-      notes: document.getElementById("group-notes").value,
-      status: document.getElementById("group-status").value,
-      member_profile_ids: Array.from(document.getElementById("group-members").selectedOptions).map((o) => Number(o.value)),
-      assignee_user_ids: Array.from(document.getElementById("group-assignees").selectedOptions).map((o) => Number(o.value)),
-    };
-
-    if (state.currentGroup) {
-      await api(`/api/work-groups/${state.currentGroup.id}`, { method: "PATCH", body: JSON.stringify(payload) });
-    } else {
-      await api("/api/work-groups", { method: "POST", body: JSON.stringify(payload) });
-    }
-
-    document.getElementById("group-editor")?.classList.add("hidden");
-    await renderGroups();
-  });
-
-  document.getElementById("delete-group")?.addEventListener("click", async () => {
-    if (!state.currentGroup) return;
-    await api(`/api/work-groups/${state.currentGroup.id}`, { method: "DELETE" });
-    document.getElementById("group-editor")?.classList.add("hidden");
-    await renderGroups();
-  });
+  })();
 });
