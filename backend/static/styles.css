@@ -47,7 +47,7 @@ main {
 }
 
 .hidden {
-  display: none;
+  display: none !important;
 }
 
 table {
@@ -124,7 +124,6 @@ textarea {
   font-size: 0.9rem;
 }
 
-/* ===== MODAL (DISCLAIMER) ===== */
 .modal {
   position: fixed;
   inset: 0;
@@ -132,20 +131,12 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 9999; /* IMPORTANT: sopra tutto */
+  z-index: 9999;
 }
-
-/* Se ha class="hidden", la regola .hidden lo nasconde (display:none) */
 
 .modal-content {
   background: white;
   padding: 2rem;
   border-radius: 10px;
   max-width: 520px;
-  width: calc(100% - 2rem);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
-}
-
-.modal-content button {
-  margin-top: 1rem;
 }
