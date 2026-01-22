@@ -28,46 +28,42 @@
 
       <section id="app-section" class="hidden">
         <nav class="tabs">
-          <button type="button" data-tab="profiles">Profili</button>
-          <button type="button" data-tab="assessments">Valutazioni</button>
-          <button type="button" data-tab="dashboard">Dashboard</button>
-          <button type="button" data-tab="groups">Gruppi di lavoro</button>
+          <button data-tab="profiles" type="button">Profili</button>
+          <button data-tab="assessments" type="button">Valutazioni</button>
+          <button data-tab="dashboard" type="button">Dashboard</button>
+          <button data-tab="groups" type="button">Gruppi di lavoro</button>
         </nav>
 
-        <!-- PROFILES -->
         <div id="tab-profiles" class="tab-content card">
           <h2>Profili studenti</h2>
 
+          <!-- CREAZIONE PROFILO (admin) -->
           <div class="card nested">
-            <h3>Crea profilo</h3>
+            <h3>Nuovo profilo (solo admin)</h3>
             <div class="form-grid">
               <label>Codice
-                <input type="text" id="profile-code" placeholder="ES. A001" />
+                <input type="text" id="profile-code" placeholder="es. STU001" />
               </label>
               <label>Nome visualizzato
-                <input type="text" id="profile-display-name" placeholder="ES. Mario Rossi" />
+                <input type="text" id="profile-display-name" placeholder="es. Mario Rossi" />
               </label>
               <label>Data di nascita
                 <input type="date" id="profile-dob" />
               </label>
             </div>
-
             <div class="actions">
-              <button type="button" id="save-profile">Salva profilo</button>
-              <button type="button" id="clear-profile-form">Pulisci</button>
+              <button id="save-profile" type="button">Salva profilo</button>
             </div>
-
-            <div id="profiles-error" class="error"></div>
+            <div id="profile-error" class="error"></div>
           </div>
 
           <table id="profiles-table"></table>
         </div>
 
-        <!-- ASSESSMENTS -->
         <div id="tab-assessments" class="tab-content card hidden">
           <h2>Valutazioni</h2>
           <div id="assessments-actions">
-            <button type="button" id="new-assessment">Nuova valutazione</button>
+            <button id="new-assessment" type="button">Nuova valutazione</button>
             <label class="inline">
               <input type="checkbox" id="show-deleted" />
               Mostra eliminati (admin)
@@ -114,10 +110,10 @@
             </label>
 
             <div class="actions">
-              <button type="button" id="save-assessment">Salva dati valutazione</button>
-              <button type="button" id="delete-assessment">Elimina</button>
-              <button type="button" id="export-assessment-pdf">Esporta PDF</button>
-              <button type="button" id="generate-plan">Genera Piano Educativo</button>
+              <button id="save-assessment" type="button">Salva dati valutazione</button>
+              <button id="delete-assessment" type="button">Elimina</button>
+              <button id="export-assessment-pdf" type="button">Esporta PDF</button>
+              <button id="generate-plan" type="button">Genera Piano Educativo</button>
             </div>
 
             <div id="assessment-warning" class="warning"></div>
@@ -129,7 +125,7 @@
               <label>Sintesi manuale
                 <textarea id="summary-manual" rows="3"></textarea>
               </label>
-              <button type="button" id="save-summary">Salva sintesi manuale</button>
+              <button id="save-summary" type="button">Salva sintesi manuale</button>
             </div>
 
             <div id="plans-section" class="card nested">
@@ -139,7 +135,6 @@
           </div>
         </div>
 
-        <!-- DASHBOARD -->
         <div id="tab-dashboard" class="tab-content card hidden">
           <h2>Dashboard</h2>
           <div class="grid">
@@ -155,7 +150,7 @@
                 <label>Confronta B
                   <select id="compare-b"></select>
                 </label>
-                <button type="button" id="compare-run">Confronta</button>
+                <button id="compare-run" type="button">Confronta</button>
                 <table id="compare-table"></table>
               </div>
             </div>
@@ -163,23 +158,21 @@
             <div>
               <h3>Obiettivi condivisi</h3>
               <select id="dashboard-item-select"></select>
-              <button type="button" id="export-item-csv">Esporta CSV</button>
-              <button type="button" id="export-item-pdf">Esporta PDF</button>
-              <button type="button" id="create-group-from-item">Crea gruppo di lavoro</button>
+              <button id="export-item-csv" type="button">Esporta CSV</button>
+              <button id="export-item-pdf" type="button">Esporta PDF</button>
+              <button id="create-group-from-item" type="button">Crea gruppo di lavoro</button>
               <table id="item-dashboard-table"></table>
             </div>
           </div>
         </div>
 
-        <!-- GROUPS -->
         <div id="tab-groups" class="tab-content card hidden">
           <h2>Gruppi di lavoro</h2>
-          <button type="button" id="new-group">Crea gruppo di lavoro</button>
+          <button id="new-group" type="button">Crea gruppo di lavoro</button>
           <table id="groups-table"></table>
 
           <div id="group-editor" class="hidden">
             <h3>Editor gruppo</h3>
-
             <div class="form-grid">
               <label>Titolo
                 <input type="text" id="group-title" />
@@ -216,16 +209,18 @@
             <label>Note
               <textarea id="group-notes" rows="3"></textarea>
             </label>
+
             <label>Partecipanti
               <select id="group-members" multiple></select>
             </label>
+
             <label>Assegnatari
               <select id="group-assignees" multiple></select>
             </label>
 
             <div class="actions">
-              <button type="button" id="save-group">Salva gruppo</button>
-              <button type="button" id="delete-group">Elimina gruppo (admin)</button>
+              <button id="save-group" type="button">Salva gruppo</button>
+              <button id="delete-group" type="button">Elimina gruppo (admin)</button>
             </div>
           </div>
         </div>
