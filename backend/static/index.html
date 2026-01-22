@@ -6,9 +6,7 @@
     <title>EduFAD</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
-
   <body>
-    <!-- HEADER -->
     <header class="app-header">
       <div>
         <h1>EduFAD</h1>
@@ -18,181 +16,146 @@
     </header>
 
     <main>
-      <!-- LOGIN -->
-      <section id="login-section" class="card hidden">
+      <section id="login-section" class="card">
         <h2>Accesso</h2>
         <form id="login-form">
-          <label>
-            Username
-            <input type="text" id="login-username" required />
-          </label>
-
-          <label>
-            Password
-            <input type="password" id="login-password" required />
-          </label>
-
+          <label>Username <input type="text" id="login-username" required /></label>
+          <label>Password <input type="password" id="login-password" required /></label>
           <button type="submit">Entra</button>
           <div id="login-error" class="error"></div>
         </form>
       </section>
 
-      <!-- APP -->
       <section id="app-section" class="hidden">
-        <!-- TABS -->
         <nav class="tabs">
-          <button data-tab="profiles">Profili</button>
-          <button data-tab="assessments">Valutazioni</button>
-          <button data-tab="dashboard">Dashboard</button>
-          <button data-tab="groups">Gruppi di lavoro</button>
+          <button type="button" data-tab="profiles">Profili</button>
+          <button type="button" data-tab="assessments">Valutazioni</button>
+          <button type="button" data-tab="dashboard">Dashboard</button>
+          <button type="button" data-tab="groups">Gruppi di lavoro</button>
         </nav>
 
-        <!-- ================= PROFILI ================= -->
+        <!-- PROFILES -->
         <div id="tab-profiles" class="tab-content card">
           <h2>Profili studenti</h2>
 
-          <!-- CREA PROFILO -->
           <div class="card nested">
-            <h3>Crea nuovo profilo</h3>
-
+            <h3>Crea profilo</h3>
             <div class="form-grid">
-              <label>
-                Codice (facoltativo)
-                <input type="text" id="profile-code" placeholder="Es. GIO01" />
+              <label>Codice
+                <input type="text" id="profile-code" placeholder="ES. A001" />
               </label>
-
-              <label>
-                Nome visualizzato
-                <input type="text" id="profile-display-name" required />
+              <label>Nome visualizzato
+                <input type="text" id="profile-display-name" placeholder="ES. Mario Rossi" />
               </label>
-
-              <label>
-                Data di nascita
-                <input type="date" id="profile-dob" required />
+              <label>Data di nascita
+                <input type="date" id="profile-dob" />
               </label>
             </div>
 
             <div class="actions">
-              <button type="button" id="create-profile">Salva profilo</button>
+              <button type="button" id="save-profile">Salva profilo</button>
+              <button type="button" id="clear-profile-form">Pulisci</button>
             </div>
 
-            <div id="profile-create-error" class="error"></div>
-            <div id="profile-create-ok" class="warning"></div>
+            <div id="profiles-error" class="error"></div>
           </div>
 
-          <!-- TABELLA PROFILI -->
           <table id="profiles-table"></table>
         </div>
 
-        <!-- ================= VALUTAZIONI ================= -->
+        <!-- ASSESSMENTS -->
         <div id="tab-assessments" class="tab-content card hidden">
           <h2>Valutazioni</h2>
-
-          <div class="actions">
+          <div id="assessments-actions">
             <button type="button" id="new-assessment">Nuova valutazione</button>
             <label class="inline">
               <input type="checkbox" id="show-deleted" />
               Mostra eliminati (admin)
             </label>
           </div>
-
           <table id="assessments-table"></table>
 
-          <!-- EDITOR -->
           <div id="assessment-editor" class="hidden">
             <h3>Editor valutazione</h3>
             <div id="assessment-meta"></div>
 
             <div class="form-grid">
-              <label>
-                Profilo
+              <label>Profilo
                 <select id="assessment-profile"></select>
               </label>
-
-              <label>
-                Data
+              <label>Data
                 <input type="date" id="assessment-date" />
               </label>
-
-              <label>
-                Stato
+              <label>Stato
                 <select id="assessment-status">
                   <option value="draft">Bozza</option>
                   <option value="finalized">Finalizzato</option>
                 </select>
               </label>
-
-              <label>
-                Operatore
+              <label>Operatore
                 <input type="text" id="assessment-operator-name" />
               </label>
-
-              <label>
-                Ruolo operatore
+              <label>Ruolo operatore
                 <input type="text" id="assessment-operator-role" />
               </label>
             </div>
 
             <div class="form-grid">
-              <label>
-                Presenti (ID separati da virgola)
+              <label>Presenti (ID utenti separati da virgola)
                 <input type="text" id="assessment-present-users" />
               </label>
-
-              <label>
-                Altri presenti
+              <label>Altri presenti
                 <input type="text" id="assessment-present-other" />
               </label>
             </div>
 
-            <label>
-              Note sessione
+            <label>Note sessione
               <textarea id="assessment-notes" rows="3"></textarea>
             </label>
 
             <div class="actions">
-              <button id="save-assessment">Salva</button>
-              <button id="delete-assessment">Elimina</button>
-              <button id="export-assessment-pdf">PDF</button>
-              <button id="generate-plan">Genera piano</button>
+              <button type="button" id="save-assessment">Salva dati valutazione</button>
+              <button type="button" id="delete-assessment">Elimina</button>
+              <button type="button" id="export-assessment-pdf">Esporta PDF</button>
+              <button type="button" id="generate-plan">Genera Piano Educativo</button>
             </div>
 
             <div id="assessment-warning" class="warning"></div>
             <div id="responses-container"></div>
 
-            <div class="card nested">
+            <div id="summary-section" class="card nested">
               <h4>Sintesi profilo</h4>
               <p><strong>Auto:</strong> <span id="summary-auto"></span></p>
-
-              <label>
-                Sintesi manuale
+              <label>Sintesi manuale
                 <textarea id="summary-manual" rows="3"></textarea>
               </label>
-
-              <button id="save-summary">Salva sintesi</button>
+              <button type="button" id="save-summary">Salva sintesi manuale</button>
             </div>
 
-            <div class="card nested">
+            <div id="plans-section" class="card nested">
               <h4>Piani educativi</h4>
               <ul id="plans-list"></ul>
             </div>
           </div>
         </div>
 
-        <!-- ================= DASHBOARD ================= -->
+        <!-- DASHBOARD -->
         <div id="tab-dashboard" class="tab-content card hidden">
           <h2>Dashboard</h2>
-
           <div class="grid">
             <div>
               <h3>Andamento profilo</h3>
               <select id="dashboard-profile-select"></select>
               <canvas id="profile-chart" width="600" height="300"></canvas>
 
-              <div>
-                <label>Confronta A <select id="compare-a"></select></label>
-                <label>Confronta B <select id="compare-b"></select></label>
-                <button id="compare-run">Confronta</button>
+              <div class="compare">
+                <label>Confronta A
+                  <select id="compare-a"></select>
+                </label>
+                <label>Confronta B
+                  <select id="compare-b"></select>
+                </label>
+                <button type="button" id="compare-run">Confronta</button>
                 <table id="compare-table"></table>
               </div>
             </div>
@@ -200,37 +163,49 @@
             <div>
               <h3>Obiettivi condivisi</h3>
               <select id="dashboard-item-select"></select>
-              <button id="export-item-csv">CSV</button>
-              <button id="export-item-pdf">PDF</button>
-              <button id="create-group-from-item">Crea gruppo</button>
+              <button type="button" id="export-item-csv">Esporta CSV</button>
+              <button type="button" id="export-item-pdf">Esporta PDF</button>
+              <button type="button" id="create-group-from-item">Crea gruppo di lavoro</button>
               <table id="item-dashboard-table"></table>
             </div>
           </div>
         </div>
 
-        <!-- ================= GRUPPI ================= -->
+        <!-- GROUPS -->
         <div id="tab-groups" class="tab-content card hidden">
           <h2>Gruppi di lavoro</h2>
-          <button id="new-group">Nuovo gruppo</button>
-
+          <button type="button" id="new-group">Crea gruppo di lavoro</button>
           <table id="groups-table"></table>
 
           <div id="group-editor" class="hidden">
             <h3>Editor gruppo</h3>
 
             <div class="form-grid">
-              <label>Titolo <input id="group-title" /></label>
-              <label>Item <select id="group-item"></select></label>
-              <label>Area <input id="group-area" /></label>
-              <label>Supporto min <input type="number" id="group-support-min" min="0" max="3" /></label>
-              <label>Supporto max <input type="number" id="group-support-max" min="0" max="3" /></label>
+              <label>Titolo
+                <input type="text" id="group-title" />
+              </label>
+              <label>Item
+                <select id="group-item"></select>
+              </label>
+              <label>Area
+                <input type="text" id="group-area" />
+              </label>
+              <label>Supporto min
+                <input type="number" id="group-support-min" min="0" max="3" />
+              </label>
+              <label>Supporto max
+                <input type="number" id="group-support-max" min="0" max="3" />
+              </label>
             </div>
 
             <div class="form-grid">
-              <label>Inizio <input type="date" id="group-start" /></label>
-              <label>Fine <input type="date" id="group-end" /></label>
-              <label>
-                Stato
+              <label>Data inizio
+                <input type="date" id="group-start" />
+              </label>
+              <label>Data fine
+                <input type="date" id="group-end" />
+              </label>
+              <label>Stato
                 <select id="group-status">
                   <option value="active">Attivo</option>
                   <option value="closed">Chiuso</option>
@@ -238,32 +213,35 @@
               </label>
             </div>
 
-            <label>Note <textarea id="group-notes"></textarea></label>
-
-            <label>Partecipanti <select id="group-members" multiple></select></label>
-            <label>Assegnatari <select id="group-assignees" multiple></select></label>
+            <label>Note
+              <textarea id="group-notes" rows="3"></textarea>
+            </label>
+            <label>Partecipanti
+              <select id="group-members" multiple></select>
+            </label>
+            <label>Assegnatari
+              <select id="group-assignees" multiple></select>
+            </label>
 
             <div class="actions">
-              <button id="save-group">Salva gruppo</button>
-              <button id="delete-group">Elimina gruppo</button>
+              <button type="button" id="save-group">Salva gruppo</button>
+              <button type="button" id="delete-group">Elimina gruppo (admin)</button>
             </div>
           </div>
         </div>
       </section>
     </main>
 
-    <!-- FOOTER -->
     <footer class="app-footer">
       <p>Strumento educativo/osservativo, non diagnostico o terapeutico.</p>
     </footer>
 
-    <!-- DISCLAIMER -->
     <div id="disclaimer-modal" class="modal hidden">
       <div class="modal-content">
         <h2>Disclaimer</h2>
         <p>
-          EduFAD è uno strumento educativo/osservativo e non ha finalità cliniche,
-          diagnostiche o terapeutiche.
+          EduFAD è uno strumento educativo/osservativo e non ha finalità cliniche, diagnostiche o terapeutiche.
+          I dati inseriti servono per la pianificazione educativa.
         </p>
         <button id="disclaimer-ack" type="button">Ho compreso</button>
       </div>
