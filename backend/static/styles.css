@@ -156,3 +156,5 @@ button:disabled{opacity:.5; cursor:not-allowed}
   z-index:1000;
 }
 .toast.show{display:block}
+.modal { z-index: 9999; }
+.modal.hidden { display: none !important; }
