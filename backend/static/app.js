@@ -24,17 +24,11 @@ const LS_DISCLAIMER_ACK_KEY = "edufad_disclaimer_ack";
 const api = async (path, options = {}) => {
   const headers = options.headers ? { ...options.headers } : {};
 
-  // Auth header
-  if (state.token) {
-    headers["Authorization"] = `Bearer ${state.token}`;
-  }
+  if (state.token) headers["Authorization"] = `Bearer ${state.token}`;
 
-  // Default JSON content-type (ma NON per form-urlencoded)
   const hasBody = Object.prototype.hasOwnProperty.call(options, "body") && options.body != null;
-  const isFormUrlEncoded = headers["Content-Type"] === "application/x-www-form-urlencoded";
-  if (!isFormUrlEncoded && hasBody && !headers["Content-Type"]) {
-    headers["Content-Type"] = "application/json";
-  }
+  const isForm = headers["Content-Type"] === "application/x-www-form-urlencoded";
+  if (hasBody && !isForm && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
 
   const response = await fetch(path, { ...options, headers });
 
@@ -67,6 +61,55 @@ const computeAge = (dob, assessmentDate) => {
 };
 
 /* -------------------------
+   Gate: Disclaimer -> Login
+   ------------------------- */
+const showDisclaimerGate = () => {
+  const disclaimerModal = document.getElementById("disclaimer-modal");
+  const loginSection = document.getElementById("login-section");
+  const appSection = document.getElementById("app-section");
+  const ackBtn = document.getElementById("disclaimer-ack");
+
+  if (!disclaimerModal || !loginSection || !ackBtn) return;
+
+  // App sempre nascosta finché non fai login
+  if (appSection) appSection.classList.add("hidden");
+
+  const alreadyAck = localStorage.getItem(LS_DISCLAIMER_ACK_KEY) === "1";
+
+  if (alreadyAck) {
+    disclaimerModal.classList.add("hidden");
+    loginSection.classList.remove("hidden");
+    return;
+  }
+
+  // Mostra disclaimer, nascondi login
+  disclaimerModal.classList.remove("hidden");
+  loginSection.classList.add("hidden");
+
+  ackBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    localStorage.setItem(LS_DISCLAIMER_ACK_KEY, "1");
+    disclaimerModal.classList.add("hidden");
+    loginSection.classList.remove("hidden");
+  });
+};
+
+const syncDisclaimerAckToServerIfPossible = async () => {
+  if (!state.user) return;
+
+  const localAck = localStorage.getItem(LS_DISCLAIMER_ACK_KEY) === "1";
+  if (!localAck) return;
+
+  if (!state.user.disclaimer_ack_at) {
+    try {
+      state.user = await api("/api/auth/ack-disclaimer", { method: "POST" });
+    } catch (_err) {
+      // best-effort: non bloccare
+    }
+  }
+};
+
+/* -------------------------
    Render functions
    ------------------------- */
 const renderProfiles = async () => {
@@ -76,15 +119,13 @@ const renderProfiles = async () => {
   const table = document.getElementById("profiles-table");
   if (table) {
     table.innerHTML = "<tr><th>Codice</th><th>Nome</th><th>Nascita</th></tr>";
-    profiles.forEach((profile) => {
-      table.innerHTML += `<tr><td>${profile.code}</td><td>${profile.display_name}</td><td>${profile.date_of_birth}</td></tr>`;
+    profiles.forEach((p) => {
+      table.innerHTML += `<tr><td>${p.code}</td><td>${p.display_name}</td><td>${p.date_of_birth}</td></tr>`;
     });
   }
 
   const select = document.getElementById("dashboard-profile-select");
-  if (select) {
-    select.innerHTML = profiles.map((p) => `<option value="${p.id}">${p.display_name}</option>`).join("");
-  }
+  if (select) select.innerHTML = profiles.map((p) => `<option value="${p.id}">${p.display_name}</option>`).join("");
 
   const assessmentProfile = document.getElementById("assessment-profile");
   if (assessmentProfile) {
@@ -105,11 +146,11 @@ const renderAssessments = async () => {
   state.assessments = assessments;
 
   const profileMap = Object.fromEntries(state.profiles.map((p) => [p.id, p]));
-
   const table = document.getElementById("assessments-table");
   if (!table) return;
 
   table.innerHTML = "<tr><th>ID</th><th>Profilo</th><th>Data</th><th>Età</th><th>Stato</th><th>Azioni</th></tr>";
+
   assessments.forEach((a) => {
     const profile = profileMap[a.profile_id];
     const age = profile ? computeAge(profile.date_of_birth, a.assessment_date) : "-";
@@ -147,7 +188,6 @@ const renderDashboard = async () => {
   if (!profileId) return;
 
   const data = await api(`/api/dashboard/profile/${profileId}`);
-
   const canvas = document.getElementById("profile-chart");
   if (!canvas) return;
 
@@ -157,12 +197,11 @@ const renderDashboard = async () => {
   ctx.beginPath();
   data.series.forEach((point, index) => {
     const x = 50 + index * 80;
-    const avg = Object.values(point.areas).reduce((acc, v) => acc + v, 0) / (Object.keys(point.areas).length || 1);
+    const avg =
+      Object.values(point.areas).reduce((acc, v) => acc + v, 0) / (Object.keys(point.areas).length || 1);
     const y = 250 - avg * 50;
-
     if (index === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
-
     ctx.fillText(point.date, x - 10, 280);
   });
   ctx.stroke();
@@ -188,35 +227,12 @@ const renderItemDashboard = async () => {
   if (!itemId) return;
 
   const data = await api(`/api/dashboard/item/${itemId}?max_support=1`);
-
   const table = document.getElementById("item-dashboard-table");
   if (!table) return;
 
   table.innerHTML = "<tr><th>Studente</th><th>Data</th><th>Supporto</th></tr>";
   data.results.forEach((row) => {
     table.innerHTML += `<tr><td>${row.profile_name}</td><td>${row.assessment_date}</td><td>${row.support}</td></tr>`;
-  });
-};
-
-const renderGroups = async () => {
-  const groups = await api("/api/work-groups");
-  state.groups = groups;
-
-  const table = document.getElementById("groups-table");
-  if (!table) return;
-
-  table.innerHTML = "<tr><th>Titolo</th><th>Item</th><th>Status</th><th>Azioni</th></tr>";
-  groups.forEach((group) => {
-    table.innerHTML += `<tr>
-      <td>${group.title}</td>
-      <td>${group.item_id}</td>
-      <td>${group.status}</td>
-      <td><button type="button" data-group="${group.id}">Apri</button></td>
-    </tr>`;
-  });
-
-  table.querySelectorAll("button[data-group]").forEach((btn) => {
-    btn.addEventListener("click", () => openGroup(btn.dataset.group));
   });
 };
 
@@ -236,13 +252,32 @@ const initChecklist = async () => {
 
 const loadUsers = async () => {
   state.users = await api("/api/users/basic");
-
   const assignees = document.getElementById("group-assignees");
   if (!assignees) return;
 
-  assignees.innerHTML = state.users
-    .map((u) => `<option value="${u.id}">${u.username} (${u.role})</option>`)
-    .join("");
+  assignees.innerHTML = state.users.map((u) => `<option value="${u.id}">${u.username} (${u.role})</option>`).join("");
+};
+
+const renderGroups = async () => {
+  const groups = await api("/api/work-groups");
+  state.groups = groups;
+
+  const table = document.getElementById("groups-table");
+  if (!table) return;
+
+  table.innerHTML = "<tr><th>Titolo</th><th>Item</th><th>Status</th><th>Azioni</th></tr>";
+  groups.forEach((g) => {
+    table.innerHTML += `<tr>
+      <td>${g.title}</td>
+      <td>${g.item_id}</td>
+      <td>${g.status}</td>
+      <td><button type="button" data-group="${g.id}">Apri</button></td>
+    </tr>`;
+  });
+
+  table.querySelectorAll("button[data-group]").forEach((btn) => {
+    btn.addEventListener("click", () => openGroup(btn.dataset.group));
+  });
 };
 
 /* -------------------------
@@ -334,9 +369,7 @@ const autosaveResponse = async (itemId) => {
   const operatorName = document.getElementById("assessment-operator-name")?.value.trim() || "";
   const operatorRole = document.getElementById("assessment-operator-role")?.value.trim() || "";
 
-  if (state.user?.role === "admin" && (!operatorName || !operatorRole)) {
-    return;
-  }
+  if (state.user?.role === "admin" && (!operatorName || !operatorRole)) return;
 
   const fields = {};
   document.querySelectorAll(`[data-item="${itemId}"]`).forEach((el) => {
@@ -390,7 +423,7 @@ const loadPlans = async () => {
 };
 
 /* -------------------------
-   Groups
+   Groups editor
    ------------------------- */
 const openGroup = async (groupId) => {
   const group = state.groups.find((g) => g.id === Number(groupId));
@@ -411,83 +444,27 @@ const openGroup = async (groupId) => {
 
   const membersEl = document.getElementById("group-members");
   if (membersEl) {
-    Array.from(membersEl.options).forEach((opt) => {
-      opt.selected = group.members.includes(Number(opt.value));
-    });
+    Array.from(membersEl.options).forEach((opt) => (opt.selected = group.members.includes(Number(opt.value))));
   }
 
   const assigneesEl = document.getElementById("group-assignees");
   if (assigneesEl) {
-    Array.from(assigneesEl.options).forEach((opt) => {
-      opt.selected = group.assignees.includes(Number(opt.value));
-    });
+    Array.from(assigneesEl.options).forEach((opt) => (opt.selected = group.assignees.includes(Number(opt.value))));
   }
 };
 
 /* -------------------------
-   Disclaimer -> Login gate
-   ------------------------- */
-const showDisclaimerGate = () => {
-  const disclaimerModal = document.getElementById("disclaimer-modal");
-  const loginSection = document.getElementById("login-section");
-  const appSection = document.getElementById("app-section");
-  const ackBtn = document.getElementById("disclaimer-ack");
-
-  if (!disclaimerModal || !loginSection || !ackBtn) return;
-
-  const alreadyAck = localStorage.getItem(LS_DISCLAIMER_ACK_KEY) === "1";
-
-  if (alreadyAck) {
-    disclaimerModal.classList.add("hidden");
-    loginSection.classList.remove("hidden");
-    if (appSection) appSection.classList.add("hidden");
-    return;
-  }
-
-  // Stato iniziale
-  disclaimerModal.classList.remove("hidden");
-  loginSection.classList.add("hidden");
-  if (appSection) appSection.classList.add("hidden");
-
-  // Click su "Ho compreso"
-  ackBtn.onclick = (e) => {
-    // IMPORTANTISSIMO: se il button fosse in un form, evita submit
-    e.preventDefault();
-
-    localStorage.setItem(LS_DISCLAIMER_ACK_KEY, "1");
-
-    disclaimerModal.classList.add("hidden");
-    loginSection.classList.remove("hidden");
-  };
-};
-
-const syncDisclaimerAckToServerIfPossible = async () => {
-  if (!state.user) return;
-
-  const localAck = localStorage.getItem(LS_DISCLAIMER_ACK_KEY) === "1";
-  if (!localAck) return;
-
-  if (!state.user.disclaimer_ack_at) {
-    try {
-      state.user = await api("/api/auth/ack-disclaimer", { method: "POST" });
-    } catch (_err) {
-      // best-effort: non bloccare l'app
-    }
-  }
-};
-
-/* -------------------------
-   Boot + Event wiring
+   Boot
    ------------------------- */
 document.addEventListener("DOMContentLoaded", () => {
-  // Gate Disclaimer -> Login
+  // Gate disclaimer -> login
   showDisclaimerGate();
 
-  // Carica token salvato (se esiste)
+  // carica token salvato
   const saved = localStorage.getItem(LS_TOKEN_KEY);
   if (saved) state.token = saved;
 
-  // LOGIN submit
+  // LOGIN
   const loginForm = document.getElementById("login-form");
   if (loginForm) {
     loginForm.addEventListener("submit", async (event) => {
@@ -511,14 +488,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
         state.user = await api("/api/auth/me");
 
-        // Mostra app
+        // UI: show app
         document.getElementById("login-section")?.classList.add("hidden");
         document.getElementById("app-section")?.classList.remove("hidden");
 
         const info = document.getElementById("user-info");
         if (info) info.textContent = `${state.user.username} (${state.user.role})`;
 
-        // Init
         await initChecklist();
         await renderProfiles();
         await renderAssessments();
@@ -527,7 +503,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
         showTab("profiles");
 
-        // sincronizza ack disclaimer lato server (se accettato prima del login)
         await syncDisclaimerAckToServerIfPossible();
       } catch (err) {
         if (errEl) errEl.textContent = err.message;
@@ -605,7 +580,7 @@ document.addEventListener("DOMContentLoaded", () => {
     await renderAssessments();
   });
 
-  // Delete assessment (soft)
+  // Delete assessment
   document.getElementById("delete-assessment")?.addEventListener("click", async () => {
     if (!state.currentAssessment) return;
     await api(`/api/assessments/${state.currentAssessment.id}`, { method: "DELETE" });
@@ -626,7 +601,7 @@ document.addEventListener("DOMContentLoaded", () => {
     await loadPlans();
   });
 
-  // Save summary manual
+  // Save summary
   document.getElementById("save-summary")?.addEventListener("click", async () => {
     if (!state.currentAssessment) return;
     await api(`/api/assessments/${state.currentAssessment.id}/summary`, {
