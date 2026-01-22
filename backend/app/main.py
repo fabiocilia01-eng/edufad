@@ -1,12 +1,14 @@
-from datetime import date, datetime, timedelta
+from __future__ import annotations
+
+from datetime import datetime, timedelta
 import csv
 import io
-import json
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
-from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import and_, func, select
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from .audit import log_action
@@ -58,41 +60,57 @@ from .schemas import (
 )
 from .services import ITEM_TO_AREA, build_plan_content, summarize_assessment
 
-
 app = FastAPI(title="EduFAD")
+
+
+# =========================
+# Healthcheck (Render)
+# =========================
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"ok": True}
 
 
+# =========================
+# Startup: crea tabelle + seed admin
+# =========================
 @app.on_event("startup")
 def startup():
     Base.metadata.create_all(bind=engine)
     settings = get_settings()
+
     db = next(get_db())
-    existing = db.query(User).filter(User.username == settings.admin_username).first()
-    if not existing:
-        admin = User(
-            username=settings.admin_username,
-            password_hash=hash_password(settings.admin_password),
-            role="admin",
-            is_active=True,
-        )
-        db.add(admin)
-        db.commit()
-        log_action(db, None, "seed_admin", "user", admin.id, "Creato utente admin iniziale.")
-    db.close()
+    try:
+        existing = db.query(User).filter(User.username == settings.admin_username).first()
+        if not existing:
+            admin = User(
+                username=settings.admin_username,
+                password_hash=hash_password(settings.admin_password),
+                role="admin",
+                is_active=True,
+            )
+            db.add(admin)
+            db.commit()
+            log_action(db, None, "seed_admin", "user", admin.id, "Creato utente admin iniziale.")
+    finally:
+        db.close()
 
 
+# =========================
+# Auth
+# =========================
 @app.post("/api/auth/login", response_model=Token)
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     rate_limit_login(form_data.username)
+
     user = db.query(User).filter(User.username == form_data.username).first()
     if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Credenziali errate.")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Utente disattivato.")
+
     reset_rate_limit(form_data.username)
+
     access_token = create_access_token({"sub": user.username, "role": user.role})
     log_action(db, user.id, "login", "user", user.id, "Accesso utente.")
     return Token(access_token=access_token)
@@ -111,8 +129,11 @@ def acknowledge_disclaimer(db: Session = Depends(get_db), user: User = Depends(g
     return user
 
 
+# =========================
+# Users
+# =========================
 @app.post("/api/users", response_model=UserOut, dependencies=[Depends(require_admin)])
-def create_user(payload: UserCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def create_user(payload: UserCreate, db: Session = Depends(get_db), actor: User = Depends(get_current_user)):
     if db.query(User).filter(User.username == payload.username).first():
         raise HTTPException(status_code=400, detail="Username già esistente.")
     new_user = User(
@@ -123,7 +144,7 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db), user: User =
     )
     db.add(new_user)
     db.commit()
-    log_action(db, user.id, "create", "user", new_user.id, f"Creato utente {payload.username}.")
+    log_action(db, actor.id, "create", "user", new_user.id, f"Creato utente {payload.username}.")
     return new_user
 
 
@@ -133,12 +154,12 @@ def list_users(db: Session = Depends(get_db)):
 
 
 @app.get("/api/users/basic", response_model=list[UserBasic])
-def list_users_basic(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def list_users_basic(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     return db.query(User).order_by(User.username).all()
 
 
 @app.patch("/api/users/{user_id}", response_model=UserOut, dependencies=[Depends(require_admin)])
-def update_user(user_id: int, payload: UserCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def update_user(user_id: int, payload: UserCreate, db: Session = Depends(get_db), actor: User = Depends(get_current_user)):
     existing = db.query(User).filter(User.id == user_id).first()
     if not existing:
         raise HTTPException(status_code=404, detail="Utente non trovato.")
@@ -146,67 +167,76 @@ def update_user(user_id: int, payload: UserCreate, db: Session = Depends(get_db)
     existing.role = payload.role
     existing.password_hash = hash_password(payload.password)
     db.commit()
-    log_action(db, user.id, "update", "user", existing.id, "Aggiornato utente.")
+    log_action(db, actor.id, "update", "user", existing.id, "Aggiornato utente.")
     return existing
 
 
 @app.delete("/api/users/{user_id}", dependencies=[Depends(require_admin)])
-def delete_user(user_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def delete_user(user_id: int, db: Session = Depends(get_db), actor: User = Depends(get_current_user)):
     existing = db.query(User).filter(User.id == user_id).first()
     if not existing:
         raise HTTPException(status_code=404, detail="Utente non trovato.")
     db.delete(existing)
     db.commit()
-    log_action(db, user.id, "delete", "user", user_id, "Eliminato utente.")
+    log_action(db, actor.id, "delete", "user", user_id, "Eliminato utente.")
     return {"ok": True}
 
 
+# =========================
+# Checklist
+# =========================
 @app.get("/api/checklist")
 def get_checklist():
     return CHECKLIST
 
 
+# =========================
+# Profiles
+# =========================
 @app.post("/api/profiles", response_model=ProfileOut, dependencies=[Depends(require_admin)])
-def create_profile(payload: ProfileCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    profile = Profile(**payload.dict())
+def create_profile(payload: ProfileCreate, db: Session = Depends(get_db), actor: User = Depends(get_current_user)):
+    profile = Profile(**payload.model_dump())
     db.add(profile)
     db.commit()
-    log_action(db, user.id, "create", "profile", profile.id, f"Creato profilo {profile.display_name}.")
+    log_action(db, actor.id, "create", "profile", profile.id, f"Creato profilo {profile.display_name}.")
     return profile
 
 
 @app.get("/api/profiles", response_model=list[ProfileOut])
-def list_profiles(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def list_profiles(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     return db.query(Profile).order_by(Profile.display_name).all()
 
 
 @app.patch("/api/profiles/{profile_id}", response_model=ProfileOut, dependencies=[Depends(require_admin)])
-def update_profile(profile_id: int, payload: ProfileUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def update_profile(profile_id: int, payload: ProfileUpdate, db: Session = Depends(get_db), actor: User = Depends(get_current_user)):
     profile = db.query(Profile).filter(Profile.id == profile_id).first()
     if not profile:
         raise HTTPException(status_code=404, detail="Profilo non trovato.")
-    for field, value in payload.dict(exclude_unset=True).items():
+    for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(profile, field, value)
     db.commit()
-    log_action(db, user.id, "update", "profile", profile.id, "Aggiornato profilo.")
+    log_action(db, actor.id, "update", "profile", profile.id, "Aggiornato profilo.")
     return profile
 
 
 @app.delete("/api/profiles/{profile_id}", dependencies=[Depends(require_admin)])
-def delete_profile(profile_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def delete_profile(profile_id: int, db: Session = Depends(get_db), actor: User = Depends(get_current_user)):
     profile = db.query(Profile).filter(Profile.id == profile_id).first()
     if not profile:
         raise HTTPException(status_code=404, detail="Profilo non trovato.")
     db.delete(profile)
     db.commit()
-    log_action(db, user.id, "delete", "profile", profile_id, "Eliminato profilo.")
+    log_action(db, actor.id, "delete", "profile", profile_id, "Eliminato profilo.")
     return {"ok": True}
 
 
+# =========================
+# Assessments
+# =========================
 @app.post("/api/assessments", response_model=AssessmentOut)
 def create_assessment(payload: AssessmentCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     assessment = Assessment(
-        **payload.dict(),
+        **payload.model_dump(),
         created_by_id=user.id,
         updated_by_id=user.id,
     )
@@ -226,8 +256,11 @@ def list_assessments(
     query = db.query(Assessment)
     if profile_id:
         query = query.filter(Assessment.profile_id == profile_id)
+
+    # se non admin o include_deleted non richiesto -> solo non cancellati
     if not include_deleted or user.role != "admin":
         query = query.filter(Assessment.is_deleted.is_(False))
+
     return query.order_by(Assessment.assessment_date.desc()).all()
 
 
@@ -249,7 +282,7 @@ def update_assessment(
     assessment = db.query(Assessment).filter(Assessment.id == assessment_id).first()
     if not assessment or (assessment.is_deleted and user.role != "admin"):
         raise HTTPException(status_code=404, detail="Assessment non trovato.")
-    for field, value in payload.dict(exclude_unset=True).items():
+    for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(assessment, field, value)
     assessment.updated_by_id = user.id
     db.commit()
@@ -267,6 +300,7 @@ def soft_delete_assessment(assessment_id: int, db: Session = Depends(get_db), us
             raise HTTPException(status_code=403, detail="Non autorizzato alla cancellazione.")
         if datetime.utcnow() - assessment.created_at > timedelta(hours=24):
             raise HTTPException(status_code=403, detail="Tempo massimo di cancellazione superato.")
+
     assessment.is_deleted = True
     assessment.deleted_at = datetime.utcnow()
     assessment.deleted_by_id = user.id
@@ -276,7 +310,7 @@ def soft_delete_assessment(assessment_id: int, db: Session = Depends(get_db), us
 
 
 @app.post("/api/assessments/{assessment_id}/restore", dependencies=[Depends(require_admin)])
-def restore_assessment(assessment_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def restore_assessment(assessment_id: int, db: Session = Depends(get_db), actor: User = Depends(get_current_user)):
     assessment = db.query(Assessment).filter(Assessment.id == assessment_id).first()
     if not assessment:
         raise HTTPException(status_code=404, detail="Assessment non trovato.")
@@ -284,21 +318,24 @@ def restore_assessment(assessment_id: int, db: Session = Depends(get_db), user: 
     assessment.deleted_at = None
     assessment.deleted_by_id = None
     db.commit()
-    log_action(db, user.id, "restore", "assessment", assessment.id, "Ripristino assessment.")
+    log_action(db, actor.id, "restore", "assessment", assessment.id, "Ripristino assessment.")
     return {"ok": True}
 
 
 @app.delete("/api/assessments/{assessment_id}/hard-delete", dependencies=[Depends(require_admin)])
-def hard_delete_assessment(assessment_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def hard_delete_assessment(assessment_id: int, db: Session = Depends(get_db), actor: User = Depends(get_current_user)):
     assessment = db.query(Assessment).filter(Assessment.id == assessment_id).first()
     if not assessment:
         raise HTTPException(status_code=404, detail="Assessment non trovato.")
     db.delete(assessment)
     db.commit()
-    log_action(db, user.id, "hard_delete", "assessment", assessment_id, "Eliminazione definitiva.")
+    log_action(db, actor.id, "hard_delete", "assessment", assessment_id, "Eliminazione definitiva.")
     return {"ok": True}
 
 
+# =========================
+# Responses + Summary
+# =========================
 @app.get("/api/assessments/{assessment_id}/responses", response_model=list[ResponseOut])
 def list_responses(assessment_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     assessment = db.query(Assessment).filter(Assessment.id == assessment_id, Assessment.is_deleted.is_(False)).first()
@@ -311,6 +348,7 @@ def _refresh_summary(db: Session, assessment: Assessment, user_id: int):
     responses = db.query(ResponseModel).filter(ResponseModel.assessment_id == assessment.id).all()
     response_dicts = [{"item_id": r.item_id, "support": r.support} for r in responses]
     new_auto = summarize_assessment(response_dicts)
+
     if assessment.summary:
         prev = assessment.summary.auto_text
         if prev != new_auto:
@@ -320,6 +358,7 @@ def _refresh_summary(db: Session, assessment: Assessment, user_id: int):
     else:
         summary = Summary(assessment_id=assessment.id, auto_text=new_auto)
         db.add(summary)
+
     db.commit()
 
 
@@ -333,22 +372,25 @@ def upsert_response(
     assessment = db.query(Assessment).filter(Assessment.id == assessment_id, Assessment.is_deleted.is_(False)).first()
     if not assessment:
         raise HTTPException(status_code=404, detail="Assessment non trovato.")
+
     response = (
         db.query(ResponseModel)
         .filter(ResponseModel.assessment_id == assessment_id, ResponseModel.item_id == payload.item_id)
         .first()
     )
+
     if response:
-        for field, value in payload.dict().items():
+        for field, value in payload.model_dump().items():
             setattr(response, field, value)
         response.updated_by_id = user.id
     else:
         response = ResponseModel(
             assessment_id=assessment_id,
             updated_by_id=user.id,
-            **payload.dict(),
+            **payload.model_dump(),
         )
         db.add(response)
+
     db.commit()
     _refresh_summary(db, assessment, user.id)
     log_action(db, user.id, "update", "response", response.id, "Aggiornato item.")
@@ -380,6 +422,9 @@ def update_summary(
     return summary
 
 
+# =========================
+# Plans
+# =========================
 @app.post("/api/assessments/{assessment_id}/plans", response_model=PlanOut)
 def generate_plan(assessment_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     assessment = db.query(Assessment).filter(Assessment.id == assessment_id, Assessment.is_deleted.is_(False)).first()
@@ -387,9 +432,12 @@ def generate_plan(assessment_id: int, db: Session = Depends(get_db), user: User 
         raise HTTPException(status_code=404, detail="Assessment non trovato.")
     responses = db.query(ResponseModel).filter(ResponseModel.assessment_id == assessment_id).all()
     response_dicts = [{"item_id": r.item_id, "support": r.support} for r in responses]
+
     content_json, content_text = build_plan_content(response_dicts)
+
     latest_version = db.query(func.max(Plan.version)).filter(Plan.assessment_id == assessment_id).scalar() or 0
     db.query(Plan).filter(Plan.assessment_id == assessment_id).update({Plan.is_active: False})
+
     plan = Plan(
         assessment_id=assessment_id,
         version=latest_version + 1,
@@ -409,6 +457,9 @@ def list_plans(assessment_id: int, db: Session = Depends(get_db), user: User = D
     return db.query(Plan).filter(Plan.assessment_id == assessment_id).order_by(Plan.version.desc()).all()
 
 
+# =========================
+# Dashboards
+# =========================
 @app.get("/api/dashboard/profile/{profile_id}")
 def dashboard_profile(profile_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     assessments = (
@@ -450,14 +501,14 @@ def compare_assessments(
     responses_b = db.query(ResponseModel).filter(ResponseModel.assessment_id == assessment_b).all()
     map_a = {r.item_id: r.support for r in responses_a}
     map_b = {r.item_id: r.support for r in responses_b}
+
     deltas = []
     for item_id in set(map_a) | set(map_b):
         support_a = map_a.get(item_id)
         support_b = map_b.get(item_id)
         if support_a is None or support_b is None:
             continue
-        delta = support_b - support_a
-        deltas.append({"item_id": item_id, "delta": delta})
+        deltas.append({"item_id": item_id, "delta": support_b - support_a})
     return {"deltas": deltas}
 
 
@@ -477,11 +528,19 @@ def dashboard_item(
         .group_by(Assessment.profile_id)
         .subquery()
     )
+
     assessments = (
         db.query(Assessment)
-        .join(subquery, and_(Assessment.profile_id == subquery.c.profile_id, Assessment.assessment_date == subquery.c.latest_date))
+        .join(
+            subquery,
+            and_(
+                Assessment.profile_id == subquery.c.profile_id,
+                Assessment.assessment_date == subquery.c.latest_date,
+            ),
+        )
         .all()
     )
+
     rows = []
     for assessment in assessments:
         response = (
@@ -501,9 +560,13 @@ def dashboard_item(
                     "gen": response.gen,
                 }
             )
+
     return {"item_id": item_id, "results": rows}
 
 
+# =========================
+# Work groups
+# =========================
 @app.post("/api/work-groups", response_model=WorkGroupOut)
 def create_group(payload: WorkGroupCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     group = WorkGroup(
@@ -520,11 +583,13 @@ def create_group(payload: WorkGroupCreate, db: Session = Depends(get_db), user: 
     )
     db.add(group)
     db.commit()
+
     for profile_id in payload.member_profile_ids:
         db.add(GroupMember(group_id=group.id, profile_id=profile_id))
     for user_id in payload.assignee_user_ids:
         db.add(GroupAssignee(group_id=group.id, user_id=user_id))
     db.commit()
+
     log_action(db, user.id, "create", "group", group.id, "Creato gruppo di lavoro.")
     return _group_out(group)
 
@@ -539,18 +604,22 @@ def update_group(group_id: int, payload: WorkGroupUpdate, db: Session = Depends(
     group = db.query(WorkGroup).filter(WorkGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Gruppo non trovato.")
-    for field, value in payload.dict(exclude_unset=True).items():
+
+    for field, value in payload.model_dump(exclude_unset=True).items():
         if field in {"member_profile_ids", "assignee_user_ids"}:
             continue
         setattr(group, field, value)
+
     if payload.member_profile_ids is not None:
         db.query(GroupMember).filter(GroupMember.group_id == group_id).delete()
         for profile_id in payload.member_profile_ids:
             db.add(GroupMember(group_id=group_id, profile_id=profile_id))
+
     if payload.assignee_user_ids is not None:
         db.query(GroupAssignee).filter(GroupAssignee.group_id == group_id).delete()
         for user_id in payload.assignee_user_ids:
             db.add(GroupAssignee(group_id=group_id, user_id=user_id))
+
     db.commit()
     log_action(db, user.id, "update", "group", group.id, "Aggiornato gruppo.")
     return _group_out(group)
@@ -567,11 +636,6 @@ def delete_group(group_id: int, db: Session = Depends(get_db), user: User = Depe
     db.commit()
     log_action(db, user.id, "delete", "group", group_id, "Eliminato gruppo.")
     return {"ok": True}
-
-
-@app.get("/api/audit", response_model=list[AuditOut], dependencies=[Depends(require_admin)])
-def list_audit(db: Session = Depends(get_db)):
-    return db.query(AuditLog).order_by(AuditLog.created_at.desc()).limit(200).all()
 
 
 def _group_out(group: WorkGroup) -> WorkGroupOut:
@@ -594,6 +658,17 @@ def _group_out(group: WorkGroup) -> WorkGroupOut:
     )
 
 
+# =========================
+# Audit
+# =========================
+@app.get("/api/audit", response_model=list[AuditOut], dependencies=[Depends(require_admin)])
+def list_audit(db: Session = Depends(get_db)):
+    return db.query(AuditLog).order_by(AuditLog.created_at.desc()).limit(200).all()
+
+
+# =========================
+# Exports (CSV + PDF)
+# =========================
 def _pdf_response(content: bytes, filename: str) -> Response:
     return Response(content, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
@@ -637,6 +712,7 @@ def export_assessment_pdf(assessment_id: int, db: Session = Depends(get_db), use
     profile = db.query(Profile).filter(Profile.id == assessment.profile_id).first()
     responses = db.query(ResponseModel).filter(ResponseModel.assessment_id == assessment_id).all()
     summary = db.query(Summary).filter(Summary.assessment_id == assessment_id).first()
+
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     y = 800
@@ -644,6 +720,7 @@ def export_assessment_pdf(assessment_id: int, db: Session = Depends(get_db), use
     c.drawString(40, y, "EduFAD - Report Assessment")
     y -= 20
     c.setFont("Helvetica", 10)
+
     age = assessment.assessment_date.year - profile.date_of_birth.year - (
         (assessment.assessment_date.month, assessment.assessment_date.day) < (profile.date_of_birth.month, profile.date_of_birth.day)
     )
@@ -651,14 +728,16 @@ def export_assessment_pdf(assessment_id: int, db: Session = Depends(get_db), use
     y -= 14
     c.drawString(40, y, f"Data: {assessment.assessment_date} | Operatore: {assessment.operator_name} ({assessment.operator_role})")
     y -= 14
-    c.drawString(40, y, f"Versione checklist: {CHECKLIST['version']}")
+    c.drawString(40, y, f"Versione checklist: {CHECKLIST.get('version')}")
     y -= 20
-    if summary:
+
+    if summary and summary.auto_text:
         c.drawString(40, y, "Sintesi:")
         y -= 14
         for line in summary.auto_text.split(". "):
             c.drawString(50, y, line.strip())
             y -= 12
+
     y -= 10
     c.drawString(40, y, "Risposte:")
     y -= 14
@@ -668,10 +747,12 @@ def export_assessment_pdf(assessment_id: int, db: Session = Depends(get_db), use
         if y < 60:
             c.showPage()
             y = 800
+
     c.setFont("Helvetica-Oblique", 8)
     c.drawString(40, 30, "Strumento educativo/osservativo, non diagnostico o terapeutico.")
     c.showPage()
     c.save()
+
     log_action(db, user.id, "export", "assessment_pdf", assessment_id, "Export PDF assessment.")
     return _pdf_response(buffer.getvalue(), f"assessment_{assessment_id}.pdf")
 
@@ -691,16 +772,19 @@ def export_item_pdf(item_id: str, db: Session = Depends(get_db), user: User = De
     c.setFont("Helvetica", 10)
     c.drawString(40, y, f"Esportato da: {user.username}")
     y -= 14
+
     for row in dashboard["results"]:
         c.drawString(40, y, f"{row['profile_name']} - {row['assessment_date']} - S{row['support']}")
         y -= 12
         if y < 60:
             c.showPage()
             y = 800
+
     c.setFont("Helvetica-Oblique", 8)
     c.drawString(40, 30, "Strumento educativo/osservativo, non diagnostico o terapeutico.")
     c.showPage()
     c.save()
+
     log_action(db, user.id, "export", "dashboard_item_pdf", None, f"Export PDF item {item_id}.")
     return _pdf_response(buffer.getvalue(), f"item_{item_id}.pdf")
 
@@ -713,6 +797,7 @@ def export_plan_pdf(plan_id: int, db: Session = Depends(get_db), user: User = De
     plan = db.query(Plan).filter(Plan.id == plan_id).first()
     if not plan:
         raise HTTPException(status_code=404, detail="Piano non trovato.")
+
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     y = 800
@@ -720,23 +805,25 @@ def export_plan_pdf(plan_id: int, db: Session = Depends(get_db), user: User = De
     c.drawString(40, y, f"EduFAD - Piano Educativo v{plan.version}")
     y -= 20
     c.setFont("Helvetica", 10)
-    for line in plan.content_text.split("\n"):
+
+    for line in (plan.content_text or "").split("\n"):
         c.drawString(40, y, line[:110])
         y -= 12
         if y < 60:
             c.showPage()
             y = 800
+
     c.setFont("Helvetica-Oblique", 8)
     c.drawString(40, 30, "Strumento educativo/osservativo, non diagnostico o terapeutico.")
     c.showPage()
     c.save()
+
     log_action(db, user.id, "export", "plan_pdf", plan_id, "Export PDF piano.")
     return _pdf_response(buffer.getvalue(), f"plan_{plan_id}.pdf")
 
 
-from pathlib import Path
-
-
+# =========================
+# Static (SPA)
+# =========================
 static_dir = Path(__file__).resolve().parents[1] / "static"
 app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
-
