@@ -1,160 +1,217 @@
+from __future__ import annotations
+
 from datetime import date, datetime
-from typing import List, Optional
+from typing import List, Optional, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
+# =========================
+# Auth
+# =========================
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
 
-class UserBase(BaseModel):
+# =========================
+# Users
+# =========================
+class UserBasic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
     username: str
     role: str
-    is_active: bool
+
+
+class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    role: str
+    is_active: bool = True
+    disclaimer_ack_at: Optional[datetime] = None
 
 
 class UserCreate(BaseModel):
-    username: str
-    password: str
-    role: str = "editor"
+    username: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
+    role: str = Field("editor")
 
 
-class UserOut(UserBase):
-    id: int
-    created_at: datetime
-    disclaimer_ack_at: Optional[datetime] = None
-
-    class Config:
-        orm_mode = True
-
-
-class UserBasic(BaseModel):
-    id: int
-    username: str
-    role: str
-    is_active: bool
-
-    class Config:
-        orm_mode = True
-
-
-class ProfileBase(BaseModel):
-    code: str
-    display_name: str
+# =========================
+# Profiles
+# =========================
+class ProfileCreate(BaseModel):
+    code: str = Field(..., min_length=1)
+    display_name: str = Field(..., min_length=1)
     date_of_birth: date
-    notes: Optional[str] = None
-
-
-class ProfileCreate(ProfileBase):
-    pass
 
 
 class ProfileUpdate(BaseModel):
+    code: Optional[str] = None
     display_name: Optional[str] = None
     date_of_birth: Optional[date] = None
-    notes: Optional[str] = None
 
 
-class ProfileOut(ProfileBase):
+class ProfileOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
-    created_at: datetime
-    updated_at: datetime
+    code: str
+    display_name: str
+    date_of_birth: date
+    created_at: Optional[datetime] = None
 
-    class Config:
-        orm_mode = True
+
+# =========================
+# Assessments
+# =========================
+AssessmentStatus = Literal["draft", "finalized"]
 
 
-class AssessmentBase(BaseModel):
+class AssessmentCreate(BaseModel):
     profile_id: int
     assessment_date: date
-    operator_name: str
-    operator_role: str
+    status: AssessmentStatus = "draft"
+    operator_name: Optional[str] = None
+    operator_role: Optional[str] = None
+
     present_user_ids: Optional[List[int]] = None
     present_other: Optional[str] = None
     session_notes: Optional[str] = None
-    stato: str = Field("bozza", pattern="^(bozza|finalizzato)$")
-
-
-
-class AssessmentCreate(AssessmentBase):
-    pass
 
 
 class AssessmentUpdate(BaseModel):
+    profile_id: Optional[int] = None
     assessment_date: Optional[date] = None
+    status: Optional[AssessmentStatus] = None
     operator_name: Optional[str] = None
     operator_role: Optional[str] = None
+
     present_user_ids: Optional[List[int]] = None
     present_other: Optional[str] = None
     session_notes: Optional[str] = None
-    status: Optional[str] = Field(None, pattern="^(draft|finalized)$")
 
 
-class AssessmentOut(AssessmentBase):
+class AssessmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
-    created_by_id: int
-    updated_by_id: Optional[int]
-    created_at: datetime
-    updated_at: datetime
-    is_deleted: bool
+    profile_id: int
+    assessment_date: date
+    status: AssessmentStatus
 
-    class Config:
-        orm_mode = True
+    operator_name: Optional[str] = None
+    operator_role: Optional[str] = None
+
+    present_user_ids: Optional[List[int]] = None
+    present_other: Optional[str] = None
+    session_notes: Optional[str] = None
+
+    is_deleted: bool = False
+    created_by_id: Optional[int] = None
+    updated_by_id: Optional[int] = None
+    deleted_by_id: Optional[int] = None
+    deleted_at: Optional[datetime] = None
+
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
-class ResponseBase(BaseModel):
-    item_id: str
-    support: int = Field(ge=0, le=3)
-    freq: Optional[str] = Field(None, pattern="^F[0-4]$")
-    gen: Optional[str] = Field(None, pattern="^G[0-3]$")
+# =========================
+# Responses + Summary + Plans
+# =========================
+class ResponseCreate(BaseModel):
+    item_id: str = Field(..., min_length=1)
+    support: int = Field(..., ge=0, le=3)
+    freq: Optional[str] = None
+    gen: Optional[str] = None
     context: Optional[str] = None
     note: Optional[str] = None
 
 
-class ResponseCreate(ResponseBase):
-    pass
+class ResponseOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
 
-
-class ResponseOut(ResponseBase):
     id: int
     assessment_id: int
-    updated_at: datetime
-    updated_by_id: int
-
-    class Config:
-        orm_mode = True
-
-
-class SummaryOut(BaseModel):
-    auto_text: str
-    manual_text: Optional[str] = None
-    manual_edited_at: Optional[datetime] = None
-    last_generated_at: datetime
-
-    class Config:
-        orm_mode = True
+    item_id: str
+    support: int
+    freq: Optional[str] = None
+    gen: Optional[str] = None
+    context: Optional[str] = None
+    note: Optional[str] = None
+    updated_by_id: Optional[int] = None
 
 
 class SummaryUpdate(BaseModel):
     manual_text: Optional[str] = None
 
 
-class PlanOut(BaseModel):
+class SummaryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
+    assessment_id: int
+    auto_text: Optional[str] = None
+    manual_text: Optional[str] = None
+    manual_edited_at: Optional[datetime] = None
+    last_generated_at: Optional[datetime] = None
+
+
+class PlanOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    assessment_id: int
     version: int
-    generated_at: datetime
-    generated_by_id: int
-    content_json: str
+    content_json: Optional[dict] = None
     content_text: str
-    is_active: bool
+    is_active: bool = True
+    generated_by_id: Optional[int] = None
+    generated_at: Optional[datetime] = None
 
-    class Config:
-        orm_mode = True
+
+# =========================
+# Work groups
+# =========================
+class WorkGroupCreate(BaseModel):
+    title: str
+    item_id: str
+    area_id: str
+    support_min: int = 0
+    support_max: int = 1
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    notes: Optional[str] = None
+    status: str = "active"
+
+    member_profile_ids: List[int] = Field(default_factory=list)
+    assignee_user_ids: List[int] = Field(default_factory=list)
 
 
-class WorkGroupBase(BaseModel):
+class WorkGroupUpdate(BaseModel):
+    title: Optional[str] = None
+    item_id: Optional[str] = None
+    area_id: Optional[str] = None
+    support_min: Optional[int] = None
+    support_max: Optional[int] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    notes: Optional[str] = None
+    status: Optional[str] = None
+
+    member_profile_ids: Optional[List[int]] = None
+    assignee_user_ids: Optional[List[int]] = None
+
+
+class WorkGroupOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
     title: str
     item_id: str
     area_id: str
@@ -163,46 +220,26 @@ class WorkGroupBase(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     notes: Optional[str] = None
-    status: str = "active"
+    status: str
+
+    created_by_id: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    members: List[int] = Field(default_factory=list)
+    assignees: List[int] = Field(default_factory=list)
 
 
-class WorkGroupCreate(WorkGroupBase):
-    member_profile_ids: List[int] = []
-    assignee_user_ids: List[int] = []
-
-
-class WorkGroupUpdate(BaseModel):
-    title: Optional[str] = None
-    support_min: Optional[int] = None
-    support_max: Optional[int] = None
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
-    notes: Optional[str] = None
-    status: Optional[str] = None
-    member_profile_ids: Optional[List[int]] = None
-    assignee_user_ids: Optional[List[int]] = None
-
-
-class WorkGroupOut(WorkGroupBase):
-    id: int
-    created_by_id: int
-    created_at: datetime
-    updated_at: datetime
-    members: List[int] = []
-    assignees: List[int] = []
-
-    class Config:
-        orm_mode = True
-
-
+# =========================
+# Audit (minimo)
+# =========================
 class AuditOut(BaseModel):
-    id: int
-    user_id: Optional[int]
-    action: str
-    entity_type: str
-    entity_id: Optional[int]
-    details: Optional[str]
-    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
 
-    class Config:
-        orm_mode = True
+    id: int
+    created_at: datetime
+    actor_user_id: Optional[int] = None
+    action: str
+    entity_type: Optional[str] = None
+    entity_id: Optional[int] = None
+    details: Optional[str] = None
