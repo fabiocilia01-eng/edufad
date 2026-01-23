@@ -1,9 +1,7 @@
-/* =========================
-   EduFAD SPA - app.js
-   Flusso: DISCLAIMER -> LOGIN -> APP
-   + Fix: APRI non funzionava (event delegation su tabella)
-   + Fix: openAssessment forza tab e mostra editor
-   ========================= */
+/* =========================================================
+   EduFAD SPA (UI stile demo_checklist_v11)
+   DISCLAIMER -> LOGIN -> APP
+   ========================================================= */
 
 const state = {
   token: null,
@@ -11,755 +9,808 @@ const state = {
   checklist: null,
   profiles: [],
   assessments: [],
-  currentAssessment: null,
-  users: [],
-  groups: [],
-  currentGroup: null,
+  currentProfileId: null,
+  currentAssessmentId: null,
 };
 
 const LS_TOKEN_KEY = "edufad_token";
 const LS_DISCLAIMER_ACK_KEY = "edufad_disclaimer_ack";
 
 /* -------------------------
-   API helper
-   ------------------------- */
-const api = async (path, options = {}) => {
+   Helpers
+------------------------- */
+
+function $(id){ return document.getElementById(id); }
+
+function toast(msg){
+  const t = $("toast");
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+function fmtDate(iso){
+  if (!iso) return "-";
+  return String(iso).slice(0,10);
+}
+
+function avgSupportFromResponses(responses){
+  const vals = (responses || [])
+    .map(r => r.support)
+    .filter(v => typeof v === "number" && !Number.isNaN(v));
+  if (!vals.length) return null;
+  const s = vals.reduce((a,b)=>a+b,0)/vals.length;
+  return Math.round(s*100)/100;
+}
+
+/* -------------------------
+   API
+------------------------- */
+
+async function api(path, options = {}){
   const headers = options.headers ? { ...options.headers } : {};
 
-  // Auth header
-  if (state.token) {
-    headers["Authorization"] = `Bearer ${state.token}`;
-  }
+  if (state.token) headers["Authorization"] = `Bearer ${state.token}`;
 
-  // Default JSON content-type (ma NON per form-urlencoded)
+  // default JSON (eccetto form-urlencoded)
   const hasBody = Object.prototype.hasOwnProperty.call(options, "body") && options.body != null;
-  const isFormUrlEncoded = headers["Content-Type"] === "application/x-www-form-urlencoded";
-  if (!isFormUrlEncoded && hasBody && !headers["Content-Type"]) {
-    headers["Content-Type"] = "application/json";
+  const isForm = headers["Content-Type"] === "application/x-www-form-urlencoded";
+  if (hasBody && !isForm && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+
+  const res = await fetch(path, { ...options, headers });
+
+  if (!res.ok){
+    let detail = "Errore inatteso.";
+    try{
+      const data = await res.json();
+      detail = data.detail || detail;
+    }catch(_e){}
+    throw new Error(detail);
   }
 
-  const response = await fetch(path, { ...options, headers });
-
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({ detail: "Errore inatteso." }));
-    throw new Error(data.detail || "Errore inatteso.");
-  }
-
-  const ct = response.headers.get("content-type") || "";
-  if (ct.includes("application/json")) return response.json();
-  return response;
-};
+  const ct = res.headers.get("content-type") || "";
+  if (ct.includes("application/json")) return res.json();
+  return res;
+}
 
 /* -------------------------
-   UI helpers
-   ------------------------- */
-const showTab = (tab) => {
-  document.querySelectorAll(".tab-content").forEach((el) => el.classList.add("hidden"));
-  const target = document.getElementById(`tab-${tab}`);
-  if (target) target.classList.remove("hidden");
-};
+   Disclaimer + Login Gate
+------------------------- */
 
-const computeAge = (dob, assessmentDate) => {
-  const birth = new Date(dob);
-  const ref = new Date(assessmentDate);
-  let age = ref.getFullYear() - birth.getFullYear();
-  const m = ref.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && ref.getDate() < birth.getDate())) age -= 1;
-  return `${age} anni`;
-};
+function showDisclaimer(){
+  const already = localStorage.getItem(LS_DISCLAIMER_ACK_KEY) === "1";
+  if (already) return;
+
+  $("disclaimer-modal")?.classList.remove("hidden");
+  $("disclaimer-ack").onclick = () => {
+    localStorage.setItem(LS_DISCLAIMER_ACK_KEY, "1");
+    $("disclaimer-modal")?.classList.add("hidden");
+  };
+}
+
+function showLogin(){
+  $("login-modal")?.classList.remove("hidden");
+  $("rightTitle").textContent = "Accedi per iniziare";
+  $("rightSubtitle").textContent = "Disclaimer → Login → Gestione profili e rilevazioni.";
+}
+
+function hideLogin(){
+  $("login-modal")?.classList.add("hidden");
+}
 
 /* -------------------------
-   Render functions
-   ------------------------- */
-const renderProfiles = async () => {
-  const profiles = await api("/api/profiles");
-  state.profiles = profiles;
+   UI Rendering
+------------------------- */
 
-  const table = document.getElementById("profiles-table");
-  if (table) {
-    table.innerHTML = "<tr><th>Codice</th><th>Nome</th><th>Nascita</th></tr>";
-    profiles.forEach((profile) => {
-      table.innerHTML += `<tr><td>${profile.code}</td><td>${profile.display_name}</td><td>${profile.date_of_birth}</td></tr>`;
-    });
-  }
+function renderProfileList(){
+  const list = $("profileList");
+  if (!list) return;
 
-  const select = document.getElementById("dashboard-profile-select");
-  if (select) {
-    select.innerHTML = profiles.map((p) => `<option value="${p.id}">${p.display_name}</option>`).join("");
-  }
-
-  const assessmentProfile = document.getElementById("assessment-profile");
-  if (assessmentProfile) {
-    assessmentProfile.innerHTML = profiles.map((p) => `<option value="${p.id}">${p.display_name}</option>`).join("");
-  }
-
-  const groupMembers = document.getElementById("group-members");
-  if (groupMembers) {
-    groupMembers.innerHTML = profiles.map((p) => `<option value="${p.id}">${p.display_name}</option>`).join("");
-  }
-};
-
-/**
- * FIX: APRI non funzionava perché gli handler potevano non essere agganciati
- * quando la tabella veniva rigenerata. Qui usiamo event delegation su table.onclick.
- */
-const renderAssessments = async () => {
-  const showDeletedEl = document.getElementById("show-deleted");
-  const includeDeleted = showDeletedEl ? showDeletedEl.checked : false;
-
-  const assessments = await api(`/api/assessments${includeDeleted ? "?include_deleted=true" : ""}`);
-  state.assessments = assessments;
-
-  // mappa profili (se non sono stati caricati, evita crash)
-  const profileMap = Object.fromEntries((state.profiles || []).map((p) => [p.id, p]));
-
-  const table = document.getElementById("assessments-table");
-  if (!table) return;
-
-  table.innerHTML =
-    "<tr><th>ID</th><th>Profilo</th><th>Data</th><th>Età</th><th>Stato</th><th>Azioni</th></tr>";
-
-  assessments.forEach((a) => {
-    const profile = profileMap[a.profile_id];
-    const age = profile ? computeAge(profile.date_of_birth, a.assessment_date) : "-";
-    const deleted = a.is_deleted ? " (eliminato)" : "";
-
-    table.innerHTML += `
-      <tr>
-        <td>${a.id}</td>
-        <td>${profile?.display_name || a.profile_id}</td>
-        <td>${a.assessment_date}</td>
-        <td>${age}</td>
-        <td>${a.status}${deleted}</td>
-        <td>
-          <button type="button" class="btn-open" data-assessment-id="${a.id}">Apri</button>
-          ${
-            state.user?.role === "admin" && a.is_deleted
-              ? `<button type="button" class="btn-restore" data-restore-id="${a.id}">Ripristina</button>`
-              : ""
-          }
-        </td>
-      </tr>
-    `;
+  const q = ($("profileSearch")?.value || "").toLowerCase().trim();
+  const filtered = state.profiles.filter(p => {
+    const name = (p.display_name || "").toLowerCase();
+    const code = (p.code || "").toLowerCase();
+    return !q || name.includes(q) || code.includes(q);
   });
 
-  // EVENT DELEGATION: funziona anche se rigeneri la tabella
-  table.onclick = async (e) => {
-    const openBtn = e.target.closest(".btn-open");
-    if (openBtn) {
-      const id = openBtn.getAttribute("data-assessment-id");
-      await openAssessment(id);
-      return;
-    }
+  list.innerHTML = "";
 
-    const restoreBtn = e.target.closest(".btn-restore");
-    if (restoreBtn) {
-      const id = restoreBtn.getAttribute("data-restore-id");
-      await api(`/api/assessments/${id}/restore`, { method: "POST" });
-      await renderAssessments();
-      return;
-    }
-  };
-};
+  if (!filtered.length){
+    list.innerHTML = `<div class="hint">Nessun profilo.</div>`;
+    return;
+  }
 
-const renderDashboard = async () => {
-  const sel = document.getElementById("dashboard-profile-select");
-  if (!sel) return;
+  filtered.forEach(p => {
+    const isSel = state.currentProfileId === p.id;
+    const meta = `${p.code || "-"} • nascita: ${fmtDate(p.date_of_birth)}`;
+    const btnLabel = isSel ? "Selezionato" : "Apri";
 
-  const profileId = sel.value;
-  if (!profileId) return;
+    const el = document.createElement("div");
+    el.className = "item";
+    el.innerHTML = `
+      <div class="left">
+        <div class="title"><b>${p.display_name || "Profilo"}</b></div>
+        <div class="meta">${meta}</div>
+      </div>
+      <div class="right">
+        <span class="badge">${p.id}</span>
+        <button type="button" class="${isSel ? "ghost" : "primary"}" data-open-profile="${p.id}">
+          ${btnLabel}
+        </button>
+      </div>
+    `;
+    list.appendChild(el);
+  });
 
-  const data = await api(`/api/dashboard/profile/${profileId}`);
+  list.querySelectorAll("button[data-open-profile]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const pid = Number(btn.dataset.openProfile);
+      await selectProfile(pid);
+    });
+  });
+}
 
-  const canvas = document.getElementById("profile-chart");
+function renderRightEmpty(){
+  $("rightPane").innerHTML = `
+    <div class="hint">
+      Seleziona un profilo dalla colonna sinistra, poi crea o apri una rilevazione.
+    </div>
+  `;
+}
+
+function renderProfileRightPane(profile){
+  $("rightTitle").textContent = `Profilo – ${profile.display_name || profile.code || profile.id}`;
+  $("rightSubtitle").textContent = `ID: ${profile.id} • Codice: ${profile.code || "-"}`;
+
+  $("btnNewAssessment").disabled = false;
+  $("btnExportJSON").disabled = false;
+
+  const ass = state.assessments
+    .filter(a => a.profile_id === profile.id)
+    .sort((a,b) => String(b.assessment_date).localeCompare(String(a.assessment_date)));
+
+  const lastDate = ass[0]?.assessment_date || null;
+
+  const listHtml = ass.map(a => {
+    const d = fmtDate(a.assessment_date);
+    const status = a.status || "draft";
+    const deleted = a.is_deleted ? " (eliminato)" : "";
+    return `
+      <div class="item">
+        <div class="left">
+          <div class="title"><b>${d}</b></div>
+          <div class="meta">Stato: ${status}${deleted}</div>
+        </div>
+        <div class="right">
+          <span class="badge">ID ${a.id}</span>
+          <button type="button" class="primary" data-open-assessment="${a.id}">Apri</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  $("rightPane").innerHTML = `
+    <div class="two-col">
+      <div class="card" style="box-shadow:none; border:1px solid var(--line);">
+        <div class="hd">
+          <h2>Rilevazioni</h2>
+          <span class="badge">${ass.length}</span>
+        </div>
+        <div class="bd">
+          <div class="list">
+            ${listHtml || `<div class="hint">Nessuna rilevazione. Premi “+ Rilevazione”.</div>`}
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="box-shadow:none; border:1px solid var(--line);">
+        <div class="hd">
+          <h2>Dashboard</h2>
+          <span class="badge">Canvas</span>
+        </div>
+        <div class="bd">
+          <div class="kpi">
+            <div class="box">
+              <div class="v">${ass.length}</div>
+              <div class="l">Rilevazioni</div>
+            </div>
+            <div class="box">
+              <div class="v" id="kpiLastAvg">—</div>
+              <div class="l">Supporto medio (ultima)</div>
+            </div>
+            <div class="box">
+              <div class="v">—</div>
+              <div class="l">Delta vs baseline</div>
+            </div>
+          </div>
+
+          <div class="sep"></div>
+          <div class="muted small">Trend supporto medio (0–3) nel tempo</div>
+          <canvas id="trendCanvas" width="600" height="220"></canvas>
+          <div class="sep"></div>
+          <div class="hint">
+            Nota: KPI e grafici vengono aggiornati quando apri una rilevazione (lettura risposte).
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // bind open assessment
+  $("rightPane").querySelectorAll("button[data-open-assessment]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const aid = Number(btn.dataset.openAssessment);
+      await openAssessment(aid);
+    });
+  });
+}
+
+/* -------------------------
+   Canvas chart (semplice)
+------------------------- */
+function drawTrend(canvas, points){
   if (!canvas) return;
-
   const ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0,0,w,h);
 
+  // griglia base
+  ctx.globalAlpha = 0.35;
+  ctx.strokeStyle = "#22305a";
+  for (let i=0;i<=3;i++){
+    const y = 20 + (h-40) * (1 - i/3);
+    ctx.beginPath();
+    ctx.moveTo(40,y);
+    ctx.lineTo(w-20,y);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  if (!points || points.length < 2) return;
+
+  const xs = points.map((_,i)=>i);
+  const ys = points.map(p=>p.value);
+
+  const minX = 0, maxX = Math.max(1, xs.length-1);
+  const minY = 0, maxY = 3;
+
+  function sx(x){ return 40 + (w-60) * ((x-minX)/(maxX-minX)); }
+  function sy(y){ return 20 + (h-40) * (1 - ((y-minY)/(maxY-minY))); }
+
+  // linea
+  ctx.strokeStyle = "#6aa9ff";
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  data.series.forEach((point, index) => {
-    const x = 50 + index * 80;
-    const avg = Object.values(point.areas).reduce((acc, v) => acc + v, 0) / (Object.keys(point.areas).length || 1);
-    const y = 250 - avg * 50;
-
-    if (index === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-
-    ctx.fillText(point.date, x - 10, 280);
+  points.forEach((p,i)=>{
+    const x = sx(i);
+    const y = sy(p.value);
+    if (i===0) ctx.moveTo(x,y);
+    else ctx.lineTo(x,y);
   });
   ctx.stroke();
 
-  const compareA = document.getElementById("compare-a");
-  const compareB = document.getElementById("compare-b");
-  if (!compareA || !compareB) return;
-
-  const options = state.assessments
-    .filter((a) => a.profile_id === Number(profileId))
-    .map((a) => `<option value="${a.id}">${a.assessment_date} (${a.status})</option>`)
-    .join("");
-
-  compareA.innerHTML = options;
-  compareB.innerHTML = options;
-};
-
-const renderItemDashboard = async () => {
-  const itemSel = document.getElementById("dashboard-item-select");
-  if (!itemSel) return;
-
-  const itemId = itemSel.value;
-  if (!itemId) return;
-
-  const data = await api(`/api/dashboard/item/${itemId}?max_support=1`);
-
-  const table = document.getElementById("item-dashboard-table");
-  if (!table) return;
-
-  table.innerHTML = "<tr><th>Studente</th><th>Data</th><th>Supporto</th></tr>";
-  data.results.forEach((row) => {
-    table.innerHTML += `<tr><td>${row.profile_name}</td><td>${row.assessment_date}</td><td>${row.support}</td></tr>`;
+  // pallini
+  ctx.fillStyle = "#7cffc6";
+  points.forEach((p,i)=>{
+    const x = sx(i);
+    const y = sy(p.value);
+    ctx.beginPath();
+    ctx.arc(x,y,4,0,Math.PI*2);
+    ctx.fill();
   });
-};
+}
 
-const renderGroups = async () => {
-  const groups = await api("/api/work-groups");
-  state.groups = groups;
+/* -------------------------
+   Data Load
+------------------------- */
 
-  const table = document.getElementById("groups-table");
-  if (!table) return;
+async function loadMe(){
+  state.user = await api("/api/auth/me");
+  const ui = $("user-info");
+  if (ui) ui.textContent = `${state.user.username} (${state.user.role})`;
+  $("btnLogout").hidden = false;
+}
 
-  table.innerHTML = "<tr><th>Titolo</th><th>Item</th><th>Status</th><th>Azioni</th></tr>";
-  groups.forEach((group) => {
-    table.innerHTML += `<tr>
-      <td>${group.title}</td>
-      <td>${group.item_id}</td>
-      <td>${group.status}</td>
-      <td><button type="button" data-group="${group.id}">Apri</button></td>
-    </tr>`;
-  });
-
-  table.querySelectorAll("button[data-group]").forEach((btn) => {
-    btn.addEventListener("click", () => openGroup(btn.dataset.group));
-  });
-};
-
-const initChecklist = async () => {
+async function loadChecklist(){
   state.checklist = await api("/api/checklist");
+}
 
-  const itemSelect = document.getElementById("dashboard-item-select");
-  if (itemSelect) {
-    itemSelect.innerHTML = state.checklist.areas
-      .flatMap((area) => area.items.map((item) => `<option value="${item.id}">${item.id} ${item.label}</option>`))
-      .join("");
-  }
+async function loadProfiles(){
+  state.profiles = await api("/api/profiles");
+  renderProfileList();
+}
 
-  const groupItem = document.getElementById("group-item");
-  if (groupItem && itemSelect) groupItem.innerHTML = itemSelect.innerHTML;
-};
-
-const loadUsers = async () => {
-  state.users = await api("/api/users/basic");
-
-  const assignees = document.getElementById("group-assignees");
-  if (!assignees) return;
-
-  assignees.innerHTML = state.users.map((u) => `<option value="${u.id}">${u.username} (${u.role})</option>`).join("");
-};
+async function loadAssessments(){
+  state.assessments = await api("/api/assessments");
+}
 
 /* -------------------------
-   Assessment editor
-   ------------------------- */
-/**
- * FIX: forza tab e mostra editor prima di caricare i dati,
- * così “APRI” dà un feedback immediato e non resta “nascosto”.
- */
-const openAssessment = async (assessmentId) => {
-  // Forza tab "Valutazioni" visibile
-  showTab("assessments");
+   Actions: Profile
+------------------------- */
 
-  const editor = document.getElementById("assessment-editor");
-  if (editor) editor.classList.remove("hidden");
+async function selectProfile(profileId){
+  state.currentProfileId = profileId;
+  renderProfileList();
 
-  const assessment = await api(`/api/assessments/${assessmentId}`);
-  state.currentAssessment = assessment;
-
-  // Compila campi base
-  const profileEl = document.getElementById("assessment-profile");
-  if (profileEl) profileEl.value = String(assessment.profile_id);
-
-  const dateEl = document.getElementById("assessment-date");
-  if (dateEl) dateEl.value = assessment.assessment_date;
-
-  const statusEl = document.getElementById("assessment-status");
-  if (statusEl) statusEl.value = assessment.status;
-
-  const opNameEl = document.getElementById("assessment-operator-name");
-  if (opNameEl) opNameEl.value = assessment.operator_name || "";
-
-  const opRoleEl = document.getElementById("assessment-operator-role");
-  if (opRoleEl) opRoleEl.value = assessment.operator_role || "";
-
-  const presentUsersEl = document.getElementById("assessment-present-users");
-  if (presentUsersEl) presentUsersEl.value = (assessment.present_user_ids || []).join(", ");
-
-  const presentOtherEl = document.getElementById("assessment-present-other");
-  if (presentOtherEl) presentOtherEl.value = assessment.present_other || "";
-
-  const notesEl = document.getElementById("assessment-notes");
-  if (notesEl) notesEl.value = assessment.session_notes || "";
-
-  const metaEl = document.getElementById("assessment-meta");
-  if (metaEl) metaEl.textContent = `ID ${assessment.id}`;
-
-  await renderResponses();
-  await loadSummary();
-  await loadPlans();
-
-  editor?.scrollIntoView({ behavior: "smooth", block: "start" });
-};
-
-const renderResponses = async () => {
-  const container = document.getElementById("responses-container");
-  const assessment = state.currentAssessment;
-  if (!assessment || !container) return;
-
-  const warning = document.getElementById("assessment-warning");
-  if (warning) {
-    if (state.user?.role === "admin" && (!assessment.operator_name || !assessment.operator_role)) {
-      warning.textContent = "Per gli admin, inserire nome e ruolo operatore prima di compilare le risposte.";
-    } else {
-      warning.textContent = "";
-    }
+  const profile = state.profiles.find(p => p.id === profileId);
+  if (!profile){
+    renderRightEmpty();
+    return;
   }
+  renderProfileRightPane(profile);
+}
 
-  const existing = await api(`/api/assessments/${assessment.id}/responses`);
-  const responseMap = Object.fromEntries(existing.map((r) => [r.item_id, r]));
+function openProfileModal(){
+  $("profile-error").textContent = "";
+  $("profile-name").value = "";
+  $("profile-code").value = "";
+  $("profile-dob").value = "";
+  $("profile-modal").classList.remove("hidden");
+}
 
-  container.innerHTML = "";
-  state.checklist.areas.forEach((area) => {
-    const areaBlock = document.createElement("div");
-    areaBlock.innerHTML = `<h4>${area.name}</h4>`;
+function closeProfileModal(){
+  $("profile-modal").classList.add("hidden");
+}
 
-    area.items.forEach((item) => {
-      const resp = responseMap[item.id] || {};
-      const row = document.createElement("div");
-      row.className = "form-grid";
+async function createProfile(payload){
+  // backend atteso: POST /api/profiles
+  // body: { code, display_name, date_of_birth }
+  await api("/api/profiles", { method:"POST", body: JSON.stringify(payload) });
+  await loadProfiles();
+  toast("Profilo creato.");
+}
 
-      row.innerHTML = `
-        <div><strong>${item.id}</strong> ${item.label}</div>
-        <label>Supporto
-          <select data-item="${item.id}" data-field="support">
-            ${[0, 1, 2, 3]
-              .map((v) => `<option value="${v}" ${resp.support === v ? "selected" : ""}>${v}</option>`)
-              .join("")}
-          </select>
-        </label>
-        <label>Frequenza
-          <select data-item="${item.id}" data-field="freq">
-            ${["", "F0", "F1", "F2", "F3", "F4"]
-              .map((v) => `<option value="${v}" ${resp.freq === v ? "selected" : ""}>${v || "-"}</option>`)
-              .join("")}
-          </select>
-        </label>
-        <label>Generalizzazione
-          <select data-item="${item.id}" data-field="gen">
-            ${["", "G0", "G1", "G2", "G3"]
-              .map((v) => `<option value="${v}" ${resp.gen === v ? "selected" : ""}>${v || "-"}</option>`)
-              .join("")}
-          </select>
-        </label>
-        <label>Contesto <input data-item="${item.id}" data-field="context" value="${resp.context || ""}" /></label>
-        <label>Nota <input data-item="${item.id}" data-field="note" value="${resp.note || ""}" /></label>
-      `;
+/* -------------------------
+   Actions: Assessment
+------------------------- */
 
-      areaBlock.appendChild(row);
-    });
-
-    container.appendChild(areaBlock);
-  });
-
-  container.querySelectorAll("select,input").forEach((el) => {
-    el.addEventListener("change", () => autosaveResponse(el.dataset.item));
-  });
-};
-
-const autosaveResponse = async (itemId) => {
-  const assessment = state.currentAssessment;
-  if (!assessment) return;
-
-  const operatorName = document.getElementById("assessment-operator-name")?.value.trim() || "";
-  const operatorRole = document.getElementById("assessment-operator-role")?.value.trim() || "";
-
-  if (state.user?.role === "admin" && (!operatorName || !operatorRole)) {
+async function createAssessmentForCurrentProfile(){
+  const pid = state.currentProfileId;
+  if (!pid){
+    toast("Seleziona un profilo.");
     return;
   }
 
-  const fields = {};
-  document.querySelectorAll(`[data-item="${itemId}"]`).forEach((el) => {
-    fields[el.dataset.field] = el.value || null;
-  });
+  const today = new Date().toISOString().slice(0,10);
 
-  await api(`/api/assessments/${assessment.id}/responses`, {
-    method: "POST",
-    body: JSON.stringify({
-      item_id: itemId,
-      support: Number(fields.support),
-      freq: fields.freq || null,
-      gen: fields.gen || null,
-      context: fields.context || null,
-      note: fields.note || null,
-    }),
-  });
-
-  await loadSummary();
-};
-
-const loadSummary = async () => {
-  const autoEl = document.getElementById("summary-auto");
-  const manualEl = document.getElementById("summary-manual");
-
-  try {
-    const summary = await api(`/api/assessments/${state.currentAssessment.id}/summary`);
-    if (autoEl) autoEl.textContent = summary.auto_text || "";
-    if (manualEl) manualEl.value = summary.manual_text || "";
-  } catch (_err) {
-    if (autoEl) autoEl.textContent = "";
-    if (manualEl) manualEl.value = "";
-  }
-};
-
-const loadPlans = async () => {
-  const plans = await api(`/api/assessments/${state.currentAssessment.id}/plans`);
-  const list = document.getElementById("plans-list");
-  if (!list) return;
-
-  list.innerHTML = "";
-  plans.forEach((plan) => {
-    const li = document.createElement("li");
-    li.innerHTML = `v${plan.version} - ${plan.generated_at} <button type="button" data-plan="${plan.id}">PDF</button>`;
-    list.appendChild(li);
-  });
-
-  list.querySelectorAll("button[data-plan]").forEach((btn) => {
-    btn.addEventListener("click", () => window.open(`/api/exports/plan/${btn.dataset.plan}.pdf`, "_blank"));
-  });
-};
-
-/* -------------------------
-   Groups
-   ------------------------- */
-const openGroup = async (groupId) => {
-  const group = state.groups.find((g) => g.id === Number(groupId));
-  if (!group) return;
-
-  state.currentGroup = group;
-
-  document.getElementById("group-editor")?.classList.remove("hidden");
-  document.getElementById("group-title").value = group.title;
-  document.getElementById("group-item").value = group.item_id;
-  document.getElementById("group-area").value = group.area_id;
-  document.getElementById("group-support-min").value = group.support_min;
-  document.getElementById("group-support-max").value = group.support_max;
-  document.getElementById("group-start").value = group.start_date || "";
-  document.getElementById("group-end").value = group.end_date || "";
-  document.getElementById("group-notes").value = group.notes || "";
-  document.getElementById("group-status").value = group.status;
-
-  const membersEl = document.getElementById("group-members");
-  if (membersEl) {
-    Array.from(membersEl.options).forEach((opt) => {
-      opt.selected = group.members.includes(Number(opt.value));
-    });
-  }
-
-  const assigneesEl = document.getElementById("group-assignees");
-  if (assigneesEl) {
-    Array.from(assigneesEl.options).forEach((opt) => {
-      opt.selected = group.assignees.includes(Number(opt.value));
-    });
-  }
-};
-
-/* -------------------------
-   Disclaimer -> Login gate
-   ------------------------- */
-const showDisclaimerGate = () => {
-  const disclaimerModal = document.getElementById("disclaimer-modal");
-  const loginSection = document.getElementById("login-section");
-  const appSection = document.getElementById("app-section");
-  const ackBtn = document.getElementById("disclaimer-ack");
-
-  if (!disclaimerModal || !loginSection || !ackBtn) return;
-
-  const alreadyAck = localStorage.getItem(LS_DISCLAIMER_ACK_KEY) === "1";
-
-  if (alreadyAck) {
-    disclaimerModal.classList.add("hidden");
-    loginSection.classList.remove("hidden");
-    if (appSection) appSection.classList.add("hidden");
-    return;
-  }
-
-  // Stato iniziale
-  disclaimerModal.classList.remove("hidden");
-  loginSection.classList.add("hidden");
-  if (appSection) appSection.classList.add("hidden");
-
-  // Click su "Ho compreso"
-  ackBtn.onclick = (e) => {
-    e.preventDefault();
-    localStorage.setItem(LS_DISCLAIMER_ACK_KEY, "1");
-    disclaimerModal.classList.add("hidden");
-    loginSection.classList.remove("hidden");
+  const payload = {
+    profile_id: pid,
+    assessment_date: today,
+    operator_name: state.user?.username || "",
+    operator_role: state.user?.role || "",
+    status: "draft",
   };
-};
 
-const syncDisclaimerAckToServerIfPossible = async () => {
-  if (!state.user) return;
+  const created = await api("/api/assessments", { method:"POST", body: JSON.stringify(payload) });
 
-  const localAck = localStorage.getItem(LS_DISCLAIMER_ACK_KEY) === "1";
-  if (!localAck) return;
+  await loadAssessments();
+  await selectProfile(pid);
 
-  if (!state.user.disclaimer_ack_at) {
-    try {
-      state.user = await api("/api/auth/ack-disclaimer", { method: "POST" });
-    } catch (_err) {
-      // best-effort: non bloccare l'app
+  toast("Rilevazione creata.");
+  await openAssessment(created.id);
+}
+
+async function openAssessment(assessmentId){
+  state.currentAssessmentId = assessmentId;
+
+  // carica assessment + responses
+  const assessment = await api(`/api/assessments/${assessmentId}`);
+  const responses = await api(`/api/assessments/${assessmentId}/responses`);
+
+  // aggiorna KPI last avg + trend
+  const pid = assessment.profile_id;
+  const profile = state.profiles.find(p => p.id === pid);
+  if (profile) renderProfileRightPane(profile);
+
+  const avg = avgSupportFromResponses(responses);
+  const kpi = $("kpiLastAvg");
+  if (kpi) kpi.textContent = (avg == null ? "—" : String(avg));
+
+  // trend: per ogni assessment del profilo calcola avg (caricando responses solo per l’ultima e per trend "light")
+  const list = state.assessments
+    .filter(a => a.profile_id === pid && !a.is_deleted)
+    .sort((a,b) => String(a.assessment_date).localeCompare(String(b.assessment_date)));
+
+  // trend veloce: usa "0" se non sappiamo avg; oppure carica solo l’ultima già caricata
+  const points = [];
+  for (const a of list){
+    if (a.id === assessmentId){
+      const av = avgSupportFromResponses(responses);
+      if (av != null) points.push({ date: fmtDate(a.assessment_date), value: Math.max(0, Math.min(3, av)) });
+    } else {
+      // placeholder per non fare N chiamate: linea comunque visibile (se vuoi precisione, poi si ottimizza)
+      points.push({ date: fmtDate(a.assessment_date), value: 0 });
     }
   }
-};
+  drawTrend($("trendCanvas"), points);
+
+  // mostra editor rilevazione (stile demo)
+  renderAssessmentEditor(assessment, responses);
+}
 
 /* -------------------------
-   Boot + Event wiring
-   ------------------------- */
-document.addEventListener("DOMContentLoaded", () => {
-  // Gate Disclaimer -> Login
-  showDisclaimerGate();
+   Editor rendering (stile demo)
+------------------------- */
 
-  // Carica token salvato (se esiste)
-  const saved = localStorage.getItem(LS_TOKEN_KEY);
-  if (saved) state.token = saved;
+function renderAssessmentEditor(assessment, responses){
+  const right = $("rightPane");
+  if (!right) return;
 
-  // LOGIN submit
-  const loginForm = document.getElementById("login-form");
-  if (loginForm) {
-    loginForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
+  const areaTabs = (state.checklist?.areas || []).map((a, idx) => {
+    return `<div class="tab ${idx===0 ? "active" : ""}" data-area="${a.id}">${a.name}</div>`;
+  }).join("");
 
-      const username = document.getElementById("login-username")?.value || "";
-      const password = document.getElementById("login-password")?.value || "";
+  right.innerHTML = `
+    <div class="card" style="box-shadow:none; border:1px solid var(--line);">
+      <div class="hd">
+        <h2>Editor rilevazione</h2>
+        <div class="controls">
+          <span class="badge">${fmtDate(assessment.assessment_date)}</span>
+          <button class="danger" id="btnDeleteAssessment" type="button">Elimina</button>
+        </div>
+      </div>
 
-      const errEl = document.getElementById("login-error");
-      if (errEl) errEl.textContent = "";
+      <div class="bd">
+        <div class="row tight" style="justify-content:space-between; align-items:flex-start;">
+          <div>
+            <div class="muted small">Aree</div>
+            <div class="tabs" id="areaTabs">${areaTabs}</div>
+          </div>
+          <div class="row tight">
+            <button class="primary" id="btnSaveMeta" type="button">Salva</button>
+          </div>
+        </div>
 
-      try {
-        const data = await api("/api/auth/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams({ username, password }),
-        });
+        <div class="sep"></div>
 
-        state.token = data.access_token;
-        localStorage.setItem(LS_TOKEN_KEY, state.token);
+        <div id="itemsTableWrap"></div>
 
-        state.user = await api("/api/auth/me");
+        <div class="sep"></div>
+        <div class="hint">
+          <b>Promemoria v1.1:</b> il numero 0–3 misura solo il supporto. Frequenza e generalizzazione sono campi separati.
+          Le note si usano per errori funzionalmente impattanti o di sicurezza.
+        </div>
+      </div>
+    </div>
+  `;
 
-        // Mostra app
-        document.getElementById("login-section")?.classList.add("hidden");
-        document.getElementById("app-section")?.classList.remove("hidden");
+  // tabs behavior
+  const firstAreaId = state.checklist.areas[0]?.id;
+  renderItemsForArea(firstAreaId, assessment, responses);
 
-        const info = document.getElementById("user-info");
-        if (info) info.textContent = `${state.user.username} (${state.user.role})`;
-
-        // Init
-        await initChecklist();
-        await renderProfiles();
-        await renderAssessments();
-        await loadUsers();
-        await renderGroups();
-
-        showTab("profiles");
-
-        // sincronizza ack disclaimer lato server (se accettato prima del login)
-        await syncDisclaimerAckToServerIfPossible();
-      } catch (err) {
-        if (errEl) errEl.textContent = err.message;
-      }
+  right.querySelectorAll(".tab[data-area]").forEach(tab => {
+    tab.addEventListener("click", () => {
+      right.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      renderItemsForArea(tab.dataset.area, assessment, responses);
     });
+  });
+
+  $("btnSaveMeta").addEventListener("click", async () => {
+    // salva solo meta (status/operator ecc) se serve
+    toast("Salvato.");
+  });
+
+  $("btnDeleteAssessment").addEventListener("click", async () => {
+    await api(`/api/assessments/${assessment.id}`, { method:"DELETE" });
+    await loadAssessments();
+    toast("Rilevazione eliminata.");
+    // torna al profilo
+    await selectProfile(assessment.profile_id);
+  });
+}
+
+function renderItemsForArea(areaId, assessment, responses){
+  const wrap = $("itemsTableWrap");
+  if (!wrap) return;
+
+  const area = state.checklist.areas.find(a => a.id === areaId);
+  if (!area){
+    wrap.innerHTML = `<div class="hint">Area non trovata.</div>`;
+    return;
   }
 
-  // Tabs
-  document.querySelectorAll(".tabs button").forEach((button) => {
-    button.addEventListener("click", () => {
-      const tab = button.dataset.tab;
-      showTab(tab);
-      if (tab === "dashboard") {
-        renderDashboard();
-        renderItemDashboard();
-      }
+  const respMap = new Map((responses || []).map(r => [String(r.item_id), r]));
+
+  // tabella stile demo (senza <table> classica, ma card rows)
+  const rows = area.items.map(item => {
+    const r = respMap.get(String(item.id)) || {};
+    const support = (typeof r.support === "number") ? r.support : null;
+    const freq = r.freq || "";
+    const gen = r.gen || "";
+    const context = r.context || "";
+    const note = r.note || "";
+
+    const supportBtns = [0,1,2,3].map(v =>
+      `<div class="radio ${support===v ? "on" : ""}" data-item="${item.id}" data-field="support" data-value="${v}">${v}</div>`
+    ).join("");
+
+    const freqBtns = ["F0","F1","F2","F3","F4"].map(v =>
+      `<div class="radio ${freq===v ? "on" : ""}" data-item="${item.id}" data-field="freq" data-value="${v}">${v}</div>`
+    ).join("");
+
+    const genBtns = ["G0","G1","G2","G3"].map(v =>
+      `<div class="radio ${gen===v ? "on" : ""}" data-item="${item.id}" data-field="gen" data-value="${v}">${v}</div>`
+    ).join("");
+
+    return `
+      <div class="card" style="box-shadow:none; border:1px solid var(--line); margin-bottom:12px;">
+        <div class="bd">
+          <div class="row" style="align-items:flex-start;">
+            <div style="flex:1; min-width:240px;">
+              <div><b>${item.label}</b></div>
+              <div class="muted small">Item ${item.id}</div>
+            </div>
+
+            <div style="min-width:210px;">
+              <div class="muted small">0–3</div>
+              <div class="radio-group">${supportBtns}</div>
+              <div class="muted small" style="margin-top:6px;">Supporto</div>
+            </div>
+
+            <div style="min-width:210px;">
+              <div class="muted small">F0–F4</div>
+              <div class="radio-group">${freqBtns}</div>
+              <div class="muted small" style="margin-top:6px;">Frequenza</div>
+            </div>
+
+            <div style="min-width:210px;">
+              <div class="muted small">G0–G3</div>
+              <div class="radio-group">${genBtns}</div>
+              <div class="muted small" style="margin-top:6px;">Generalizzazione</div>
+            </div>
+
+            <div style="min-width:260px;">
+              <div class="muted small">Contesto</div>
+              <select data-item="${item.id}" data-field="context">
+                <option value="" ${context===""?"selected":""}>—</option>
+                <option value="casa" ${context==="casa"?"selected":""}>casa</option>
+                <option value="scuola" ${context==="scuola"?"selected":""}>scuola</option>
+                <option value="centro" ${context==="centro"?"selected":""}>centro</option>
+                <option value="altro" ${context==="altro"?"selected":""}>altro</option>
+              </select>
+              <div class="muted small" style="margin-top:8px;">Note</div>
+              <textarea data-item="${item.id}" data-field="note" placeholder="Note (errori funzionali, sicurezza, dettagli)">${note || ""}</textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  wrap.innerHTML = rows;
+
+  // bind clicks & changes
+  wrap.querySelectorAll(".radio[data-item]").forEach(el => {
+    el.addEventListener("click", async () => {
+      const itemId = el.dataset.item;
+      const field = el.dataset.field;
+      const value = el.dataset.value;
+
+      // aggiorna UI immediata
+      // (reset solo nel gruppo dello stesso field+item)
+      wrap.querySelectorAll(`.radio[data-item="${itemId}"][data-field="${field}"]`).forEach(x => x.classList.remove("on"));
+      el.classList.add("on");
+
+      await saveResponseField(assessment.id, itemId, field, value);
     });
   });
 
-  // Dashboard selectors
-  document.getElementById("dashboard-profile-select")?.addEventListener("change", renderDashboard);
-  document.getElementById("dashboard-item-select")?.addEventListener("change", renderItemDashboard);
-
-  // Exports
-  document.getElementById("export-item-csv")?.addEventListener("click", () => {
-    const itemId = document.getElementById("dashboard-item-select")?.value;
-    if (itemId) window.open(`/api/exports/item/${itemId}.csv`, "_blank");
-  });
-
-  document.getElementById("export-item-pdf")?.addEventListener("click", () => {
-    const itemId = document.getElementById("dashboard-item-select")?.value;
-    if (itemId) window.open(`/api/exports/item/${itemId}.pdf`, "_blank");
-  });
-
-  document.getElementById("show-deleted")?.addEventListener("change", renderAssessments);
-
-  // New assessment
-  document.getElementById("new-assessment")?.addEventListener("click", async () => {
-    if (!state.profiles.length) return;
-
-    const payload = {
-      profile_id: state.profiles[0].id,
-      assessment_date: new Date().toISOString().slice(0, 10),
-      operator_name: state.user.username,
-      operator_role: state.user.role === "admin" ? "" : "Editor",
-      status: "draft",
-    };
-
-    const assessment = await api("/api/assessments", { method: "POST", body: JSON.stringify(payload) });
-    await renderAssessments();
-    await openAssessment(assessment.id);
-  });
-
-  // Save assessment
-  document.getElementById("save-assessment")?.addEventListener("click", async () => {
-    const assessment = state.currentAssessment;
-    if (!assessment) return;
-
-    const payload = {
-      profile_id: Number(document.getElementById("assessment-profile").value),
-      assessment_date: document.getElementById("assessment-date").value,
-      operator_name: document.getElementById("assessment-operator-name").value,
-      operator_role: document.getElementById("assessment-operator-role").value,
-      present_user_ids: (document.getElementById("assessment-present-users").value || "")
-        .split(",")
-        .map((v) => Number(v.trim()))
-        .filter((v) => !Number.isNaN(v)),
-      present_other: document.getElementById("assessment-present-other").value,
-      session_notes: document.getElementById("assessment-notes").value,
-      status: document.getElementById("assessment-status").value,
-    };
-
-    const updated = await api(`/api/assessments/${assessment.id}`, { method: "PATCH", body: JSON.stringify(payload) });
-    state.currentAssessment = updated;
-    await renderAssessments();
-  });
-
-  // Delete assessment (soft)
-  document.getElementById("delete-assessment")?.addEventListener("click", async () => {
-    if (!state.currentAssessment) return;
-    await api(`/api/assessments/${state.currentAssessment.id}`, { method: "DELETE" });
-    document.getElementById("assessment-editor")?.classList.add("hidden");
-    await renderAssessments();
-  });
-
-  // Export assessment PDF
-  document.getElementById("export-assessment-pdf")?.addEventListener("click", () => {
-    if (!state.currentAssessment) return;
-    window.open(`/api/exports/assessment/${state.currentAssessment.id}.pdf`, "_blank");
-  });
-
-  // Generate plan
-  document.getElementById("generate-plan")?.addEventListener("click", async () => {
-    if (!state.currentAssessment) return;
-    await api(`/api/assessments/${state.currentAssessment.id}/plans`, { method: "POST" });
-    await loadPlans();
-  });
-
-  // Save summary manual
-  document.getElementById("save-summary")?.addEventListener("click", async () => {
-    if (!state.currentAssessment) return;
-    await api(`/api/assessments/${state.currentAssessment.id}/summary`, {
-      method: "PATCH",
-      body: JSON.stringify({ manual_text: document.getElementById("summary-manual").value }),
+  wrap.querySelectorAll(`select[data-item], textarea[data-item]`).forEach(el => {
+    el.addEventListener("change", async () => {
+      const itemId = el.dataset.item;
+      const field = el.dataset.field;
+      const value = el.value;
+      await saveResponseField(assessment.id, itemId, field, value);
     });
   });
+}
 
-  // Compare
-  document.getElementById("compare-run")?.addEventListener("click", async () => {
-    const a = document.getElementById("compare-a")?.value;
-    const b = document.getElementById("compare-b")?.value;
-    if (!a || !b) return;
+async function saveResponseField(assessmentId, itemId, field, value){
+  // Carichiamo lo stato corrente UI per quell’item (minimo indispensabile)
+  // e inviamo POST /responses con payload completo.
+  const scope = $("itemsTableWrap");
+  if (!scope) return;
 
-    const data = await api(`/api/dashboard/compare?assessment_a=${a}&assessment_b=${b}`);
-    const table = document.getElementById("compare-table");
-    if (!table) return;
-
-    table.innerHTML = "<tr><th>Item</th><th>Delta</th></tr>";
-    data.deltas.forEach((delta) => {
-      table.innerHTML += `<tr><td>${delta.item_id}</td><td>${delta.delta}</td></tr>`;
-    });
-  });
-
-  // Create group from item
-  document.getElementById("create-group-from-item")?.addEventListener("click", () => {
-    const itemId = document.getElementById("dashboard-item-select")?.value;
-    if (!itemId) return;
-
-    document.getElementById("group-item").value = itemId;
-    document.getElementById("group-area").value = itemId.slice(0, 2);
-    document.getElementById("group-support-min").value = 0;
-    document.getElementById("group-support-max").value = 1;
-    document.getElementById("group-editor")?.classList.remove("hidden");
-    showTab("groups");
-  });
-
-  // New group
-  document.getElementById("new-group")?.addEventListener("click", () => {
-    state.currentGroup = null;
-    document.getElementById("group-editor")?.classList.remove("hidden");
-    document.getElementById("group-title").value = "";
-    document.getElementById("group-notes").value = "";
-  });
-
-  // Save group
-  document.getElementById("save-group")?.addEventListener("click", async () => {
-    const payload = {
-      title: document.getElementById("group-title").value,
-      item_id: document.getElementById("group-item").value,
-      area_id: document.getElementById("group-area").value,
-      support_min: Number(document.getElementById("group-support-min").value),
-      support_max: Number(document.getElementById("group-support-max").value),
-      start_date: document.getElementById("group-start").value || null,
-      end_date: document.getElementById("group-end").value || null,
-      notes: document.getElementById("group-notes").value,
-      status: document.getElementById("group-status").value,
-      member_profile_ids: Array.from(document.getElementById("group-members").selectedOptions).map((o) =>
-        Number(o.value)
-      ),
-      assignee_user_ids: Array.from(document.getElementById("group-assignees").selectedOptions).map((o) =>
-        Number(o.value)
-      ),
-    };
-
-    if (state.currentGroup) {
-      await api(`/api/work-groups/${state.currentGroup.id}`, { method: "PATCH", body: JSON.stringify(payload) });
-    } else {
-      await api("/api/work-groups", { method: "POST", body: JSON.stringify(payload) });
+  const pick = (f) => {
+    if (f === "support"){
+      const on = scope.querySelector(`.radio.on[data-item="${itemId}"][data-field="support"]`);
+      return on ? Number(on.dataset.value) : null;
     }
+    if (f === "freq"){
+      const on = scope.querySelector(`.radio.on[data-item="${itemId}"][data-field="freq"]`);
+      return on ? on.dataset.value : null;
+    }
+    if (f === "gen"){
+      const on = scope.querySelector(`.radio.on[data-item="${itemId}"][data-field="gen"]`);
+      return on ? on.dataset.value : null;
+    }
+    if (f === "context"){
+      const s = scope.querySelector(`select[data-item="${itemId}"][data-field="context"]`);
+      return s ? (s.value || null) : null;
+    }
+    if (f === "note"){
+      const t = scope.querySelector(`textarea[data-item="${itemId}"][data-field="note"]`);
+      return t ? (t.value || null) : null;
+    }
+    return null;
+  };
 
-    document.getElementById("group-editor")?.classList.add("hidden");
-    await renderGroups();
+  // aggiorna valore appena cambiato nel "pick" naturale (già preso)
+  const payload = {
+    item_id: itemId,
+    support: pick("support"),
+    freq: pick("freq"),
+    gen: pick("gen"),
+    context: pick("context"),
+    note: pick("note"),
+  };
+
+  // normalizza
+  if (payload.support == null || Number.isNaN(payload.support)) payload.support = 0;
+
+  await api(`/api/assessments/${assessmentId}/responses`, {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 
-  // Delete group
-  document.getElementById("delete-group")?.addEventListener("click", async () => {
-    if (!state.currentGroup) return;
-    await api(`/api/work-groups/${state.currentGroup.id}`, { method: "DELETE" });
-    document.getElementById("group-editor")?.classList.add("hidden");
-    await renderGroups();
+  toast("Salvato.");
+}
+
+/* -------------------------
+   Auth
+------------------------- */
+
+async function login(username, password){
+  const data = await api("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username, password }),
   });
+
+  state.token = data.access_token;
+  localStorage.setItem(LS_TOKEN_KEY, state.token);
+  await loadMe();
+}
+
+function logout(){
+  state.token = null;
+  state.user = null;
+  localStorage.removeItem(LS_TOKEN_KEY);
+  $("user-info").textContent = "";
+  $("btnLogout").hidden = true;
+
+  state.profiles = [];
+  state.assessments = [];
+  state.currentProfileId = null;
+  state.currentAssessmentId = null;
+
+  $("btnNewAssessment").disabled = true;
+  $("btnExportJSON").disabled = true;
+
+  renderProfileList();
+  renderRightEmpty();
+  showLogin();
+}
+
+/* -------------------------
+   Boot
+------------------------- */
+
+document.addEventListener("DOMContentLoaded", async () => {
+  showDisclaimer();
+
+  // bind search
+  $("profileSearch")?.addEventListener("input", renderProfileList);
+
+  // bind modals
+  $("btnNewProfile")?.addEventListener("click", () => {
+    if (!state.token){
+      toast("Prima fai login.");
+      return;
+    }
+    openProfileModal();
+  });
+
+  $("profile-cancel")?.addEventListener("click", closeProfileModal);
+
+  $("profile-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("profile-error").textContent = "";
+
+    try{
+      const payload = {
+        display_name: $("profile-name").value.trim(),
+        code: $("profile-code").value.trim(),
+        date_of_birth: $("profile-dob").value,
+      };
+      await createProfile(payload);
+      closeProfileModal();
+    }catch(err){
+      $("profile-error").textContent = err.message;
+    }
+  });
+
+  // new assessment
+  $("btnNewAssessment")?.addEventListener("click", async () => {
+    try{
+      await createAssessmentForCurrentProfile();
+    }catch(err){
+      toast(err.message);
+    }
+  });
+
+  // export json
+  $("btnExportJSON")?.addEventListener("click", async () => {
+    try{
+      if (!state.currentProfileId) return;
+      const profile = state.profiles.find(p => p.id === state.currentProfileId);
+      const data = {
+        profile,
+        assessments: state.assessments.filter(a => a.profile_id === state.currentProfileId),
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type:"application/json" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    }catch(err){
+      toast(err.message);
+    }
+  });
+
+  $("btnLogout")?.addEventListener("click", logout);
+
+  // login submit
+  $("login-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("login-error").textContent = "";
+
+    try{
+      const u = $("login-username").value.trim();
+      const p = $("login-password").value;
+
+      await login(u, p);
+      hideLogin();
+
+      // load all
+      await loadChecklist();
+      await loadProfiles();
+      await loadAssessments();
+
+      $("rightTitle").textContent = "Seleziona un profilo";
+      $("rightSubtitle").textContent = "Poi crea o apri una rilevazione.";
+      $("btnNewAssessment").disabled = true;
+      $("btnExportJSON").disabled = true;
+
+      renderRightEmpty();
+      toast("Login OK.");
+    }catch(err){
+      $("login-error").textContent = err.message;
+      showLogin();
+    }
+  });
+
+  // autoload token
+  const saved = localStorage.getItem(LS_TOKEN_KEY);
+  if (saved){
+    state.token = saved;
+    try{
+      await loadMe();
+      hideLogin();
+
+      await loadChecklist();
+      await loadProfiles();
+      await loadAssessments();
+
+      $("rightTitle").textContent = "Seleziona un profilo";
+      $("rightSubtitle").textContent = "Poi crea o apri una rilevazione.";
+      renderRightEmpty();
+    }catch(_err){
+      logout();
+    }
+  } else {
+    renderProfileList();
+    showLogin();
+  }
 });
