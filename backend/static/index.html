@@ -1,214 +1,147 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="it">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>EduFAD</title>
-    <link rel="stylesheet" href="/styles.css" />
-    <!-- Fix favicon 404: anche un SVG vuoto va bene -->
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22/>" />
-  </head>
-  <body>
-    <header class="app-header">
-      <div>
-        <h1>EduFAD</h1>
-        <p class="subtitle">Strumento educativo per il funzionamento adattivo</p>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>EduFAD – Checklist Funzionamento Adattivo v1.1</title>
+
+  <!-- Se non hai il file favicon.ico non blocca nulla (al massimo resta 404) -->
+  <link rel="icon" href="/favicon.ico" />
+
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+
+<body>
+  <div class="wrap">
+    <header>
+      <div class="top-left">
+        <h1>EduFAD – Checklist Funzionamento Adattivo v1.1</h1>
+        <div class="sub">Web app • Multiutente • Storico rilevazioni • Grafici Canvas</div>
       </div>
-      <div id="user-info"></div>
+
+      <div class="top-right">
+        <span class="pill"><span class="mono">Supporto</span> 0–3 • <span class="mono">F</span> F0–F4 • <span class="mono">G</span> G0–G3</span>
+
+        <div class="userbox">
+          <div id="user-info" class="muted small"></div>
+          <button class="ghost" id="btnLogout" type="button" hidden>Logout</button>
+        </div>
+      </div>
     </header>
 
-    <main>
-      <section id="login-section" class="card">
-        <h2>Accesso</h2>
-        <form id="login-form">
-          <label>Username <input type="text" id="login-username" required /></label>
-          <label>Password <input type="password" id="login-password" required /></label>
-          <button type="submit">Entra</button>
-          <div id="login-error" class="error"></div>
-        </form>
-      </section>
-
-      <section id="app-section" class="hidden">
-        <nav class="tabs">
-          <button type="button" data-tab="profiles">Profili</button>
-          <button type="button" data-tab="assessments">Valutazioni</button>
-          <button type="button" data-tab="dashboard">Dashboard</button>
-          <button type="button" data-tab="groups">Gruppi di lavoro</button>
-        </nav>
-
-        <div id="tab-profiles" class="tab-content card">
-          <h2>Profili studenti</h2>
-          <div id="profiles-actions"></div>
-          <table id="profiles-table"></table>
+    <div class="grid">
+      <!-- LEFT: PROFILI -->
+      <div class="card">
+        <div class="hd">
+          <h2>Profili</h2>
+          <button class="primary" id="btnNewProfile" type="button">+ Profilo</button>
         </div>
-
-        <div id="tab-assessments" class="tab-content card hidden">
-          <h2>Valutazioni</h2>
-          <div id="assessments-actions">
-            <button type="button" id="new-assessment">Nuova valutazione</button>
-            <label class="inline">
-              <input type="checkbox" id="show-deleted" />
-              Mostra eliminati (admin)
-            </label>
+        <div class="bd">
+          <div class="row">
+            <input id="profileSearch" placeholder="Cerca profilo..." />
           </div>
-          <table id="assessments-table"></table>
-          <div id="assessment-editor" class="hidden">
-            <h3>Editor valutazione</h3>
-            <div id="assessment-meta"></div>
-            <div class="form-grid">
-              <label>Profilo
-                <select id="assessment-profile"></select>
-              </label>
-              <label>Data
-                <input type="date" id="assessment-date" />
-              </label>
-              <label>Stato
-                <select id="assessment-status">
-                  <option value="draft">Bozza</option>
-                  <option value="finalized">Finalizzato</option>
-                </select>
-              </label>
-              <label>Operatore
-                <input type="text" id="assessment-operator-name" />
-              </label>
-              <label>Ruolo operatore
-                <input type="text" id="assessment-operator-role" />
-              </label>
-            </div>
-            <div class="form-grid">
-              <label>Presenti (ID utenti separati da virgola)
-                <input type="text" id="assessment-present-users" />
-              </label>
-              <label>Altri presenti
-                <input type="text" id="assessment-present-other" />
-              </label>
-            </div>
-            <label>Note sessione
-              <textarea id="assessment-notes" rows="3"></textarea>
-            </label>
-            <div class="actions">
-              <button type="button" id="save-assessment">Salva dati valutazione</button>
-              <button type="button" id="delete-assessment">Elimina</button>
-              <button type="button" id="export-assessment-pdf">Esporta PDF</button>
-              <button type="button" id="generate-plan">Genera Piano Educativo</button>
-            </div>
-            <div id="assessment-warning" class="warning"></div>
-            <div id="responses-container"></div>
-            <div id="summary-section" class="card nested">
-              <h4>Sintesi profilo</h4>
-              <p><strong>Auto:</strong> <span id="summary-auto"></span></p>
-              <label>Sintesi manuale
-                <textarea id="summary-manual" rows="3"></textarea>
-              </label>
-              <button type="button" id="save-summary">Salva sintesi manuale</button>
-            </div>
-            <div id="plans-section" class="card nested">
-              <h4>Piani educativi</h4>
-              <ul id="plans-list"></ul>
-            </div>
+
+          <div class="sep"></div>
+          <div class="list" id="profileList"></div>
+
+          <div class="sep"></div>
+          <div class="hint">
+            <b>Nota:</b> i profili e le rilevazioni sono nel database (non nel browser). Se cambi PC li ritrovi.
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: CONTENUTO -->
+      <div class="card">
+        <div class="hd">
+          <div style="display:flex; flex-direction:column; gap:2px; min-width:0">
+            <h2 id="rightTitle">Accedi per iniziare</h2>
+            <div class="small muted" id="rightSubtitle">Disclaimer → Login → Gestione profili e rilevazioni.</div>
+          </div>
+
+          <div class="controls">
+            <button id="btnNewAssessment" class="primary" type="button" disabled>+ Rilevazione</button>
+            <button id="btnExportJSON" class="ghost" type="button" disabled>Export JSON</button>
           </div>
         </div>
 
-        <div id="tab-dashboard" class="tab-content card hidden">
-          <h2>Dashboard</h2>
-          <div class="grid">
-            <div>
-              <h3>Andamento profilo</h3>
-              <select id="dashboard-profile-select"></select>
-              <canvas id="profile-chart" width="600" height="300"></canvas>
-              <div class="compare">
-                <label>Confronta A
-                  <select id="compare-a"></select>
-                </label>
-                <label>Confronta B
-                  <select id="compare-b"></select>
-                </label>
-                <button type="button" id="compare-run">Confronta</button>
-                <table id="compare-table"></table>
-              </div>
-            </div>
-            <div>
-              <h3>Obiettivi condivisi</h3>
-              <select id="dashboard-item-select"></select>
-              <button type="button" id="export-item-csv">Esporta CSV</button>
-              <button type="button" id="export-item-pdf">Esporta PDF</button>
-              <button type="button" id="create-group-from-item">Crea gruppo di lavoro</button>
-              <table id="item-dashboard-table"></table>
-            </div>
+        <div class="bd" id="rightPane">
+          <!-- dynamic -->
+          <div class="hint">
+            Effettua il login per visualizzare profili e rilevazioni.
           </div>
         </div>
-
-        <div id="tab-groups" class="tab-content card hidden">
-          <h2>Gruppi di lavoro</h2>
-          <button type="button" id="new-group">Crea gruppo di lavoro</button>
-          <table id="groups-table"></table>
-          <div id="group-editor" class="hidden">
-            <h3>Editor gruppo</h3>
-            <div class="form-grid">
-              <label>Titolo
-                <input type="text" id="group-title" />
-              </label>
-              <label>Item
-                <select id="group-item"></select>
-              </label>
-              <label>Area
-                <input type="text" id="group-area" />
-              </label>
-              <label>Supporto min
-                <input type="number" id="group-support-min" min="0" max="3" />
-              </label>
-              <label>Supporto max
-                <input type="number" id="group-support-max" min="0" max="3" />
-              </label>
-            </div>
-            <div class="form-grid">
-              <label>Data inizio
-                <input type="date" id="group-start" />
-              </label>
-              <label>Data fine
-                <input type="date" id="group-end" />
-              </label>
-              <label>Stato
-                <select id="group-status">
-                  <option value="active">Attivo</option>
-                  <option value="closed">Chiuso</option>
-                </select>
-              </label>
-            </div>
-            <label>Note
-              <textarea id="group-notes" rows="3"></textarea>
-            </label>
-            <label>Partecipanti
-              <select id="group-members" multiple></select>
-            </label>
-            <label>Assegnatari
-              <select id="group-assignees" multiple></select>
-            </label>
-            <div class="actions">
-              <button type="button" id="save-group">Salva gruppo</button>
-              <button type="button" id="delete-group">Elimina gruppo (admin)</button>
-            </div>
-          </div>
-        </div>
-      </section>
-    </main>
-
-    <footer class="app-footer">
-      <p>Strumento educativo/osservativo, non diagnostico o terapeutico.</p>
-    </footer>
-
-    <!-- DISCLAIMER -->
-    <div id="disclaimer-modal" class="modal hidden" aria-hidden="true">
-      <div class="modal-content">
-        <h2>Disclaimer</h2>
-        <p>
-          EduFAD è uno strumento educativo/osservativo e non ha finalità cliniche, diagnostiche o terapeutiche.
-          I dati inseriti servono per la pianificazione educativa.
-        </p>
-        <button id="disclaimer-ack" type="button">Ho compreso</button>
       </div>
     </div>
 
-    <script src="/app.js"></script>
-  </body>
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <!-- DISCLAIMER MODAL -->
+  <div id="disclaimer-modal" class="modal hidden">
+    <div class="modal-content">
+      <h2>Disclaimer</h2>
+      <p class="muted">
+        EduFAD è uno strumento educativo/osservativo e non ha finalità cliniche, diagnostiche o terapeutiche.
+        I dati inseriti servono per la pianificazione educativa.
+      </p>
+      <div class="row tight" style="justify-content:flex-end">
+        <button class="primary" id="disclaimer-ack" type="button">Ho compreso</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOGIN MODAL -->
+  <div id="login-modal" class="modal hidden">
+    <div class="modal-content">
+      <h2>Accesso</h2>
+
+      <form id="login-form" class="form">
+        <label>Username
+          <input type="text" id="login-username" required />
+        </label>
+
+        <label>Password
+          <input type="password" id="login-password" required />
+        </label>
+
+        <div class="row tight" style="justify-content:flex-end">
+          <button class="primary" type="submit">Entra</button>
+        </div>
+
+        <div id="login-error" class="error"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: NUOVO PROFILO -->
+  <div id="profile-modal" class="modal hidden">
+    <div class="modal-content">
+      <h2>Nuovo profilo</h2>
+
+      <form id="profile-form" class="form">
+        <label>Nome visualizzato
+          <input type="text" id="profile-name" required placeholder="Es. Ragazzo A" />
+        </label>
+
+        <label>Codice
+          <input type="text" id="profile-code" required placeholder="Es. A001" />
+        </label>
+
+        <label>Data di nascita
+          <input type="date" id="profile-dob" required />
+        </label>
+
+        <div class="row tight" style="justify-content:flex-end">
+          <button class="ghost" id="profile-cancel" type="button">Annulla</button>
+          <button class="primary" type="submit">Salva profilo</button>
+        </div>
+
+        <div id="profile-error" class="error"></div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
 </html>
