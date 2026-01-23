@@ -1,147 +1,235 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="it">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>EduFAD – Checklist Funzionamento Adattivo v1.1</title>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EduFAD</title>
 
-  <!-- Se non hai il file favicon.ico non blocca nulla (al massimo resta 404) -->
-  <link rel="icon" href="/favicon.ico" />
+    <!-- Evita richiesta /favicon.ico (404) -->
+    <link rel="icon" href="data:," />
 
-  <link rel="stylesheet" href="/styles.css" />
-</head>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
 
-<body>
-  <div class="wrap">
-    <header>
-      <div class="top-left">
-        <h1>EduFAD – Checklist Funzionamento Adattivo v1.1</h1>
-        <div class="sub">Web app • Multiutente • Storico rilevazioni • Grafici Canvas</div>
+  <body>
+    <!-- TOP BAR (stile demo) -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="topbar-title">EduFAD</div>
+        <div class="topbar-subtitle">Checklist Funzionamento Adattivo v1.1</div>
       </div>
 
-      <div class="top-right">
-        <span class="pill"><span class="mono">Supporto</span> 0–3 • <span class="mono">F</span> F0–F4 • <span class="mono">G</span> G0–G3</span>
+      <div class="topbar-center">
+        <div class="pill pill-muted">Supporto 0–3 • F F0–F4 • G G0–G3</div>
+      </div>
 
-        <div class="userbox">
-          <div id="user-info" class="muted small"></div>
-          <button class="ghost" id="btnLogout" type="button" hidden>Logout</button>
-        </div>
+      <div class="topbar-right">
+        <div id="user-info" class="user-info"></div>
+        <button id="btn-clear-cache" class="btn btn-ghost" type="button" title="Pulisci cache app (localStorage)">
+          Pulisci cache
+        </button>
       </div>
     </header>
 
-    <div class="grid">
-      <!-- LEFT: PROFILI -->
-      <div class="card">
-        <div class="hd">
-          <h2>Profili</h2>
-          <button class="primary" id="btnNewProfile" type="button">+ Profilo</button>
-        </div>
-        <div class="bd">
-          <div class="row">
-            <input id="profileSearch" placeholder="Cerca profilo..." />
-          </div>
-
-          <div class="sep"></div>
-          <div class="list" id="profileList"></div>
-
-          <div class="sep"></div>
-          <div class="hint">
-            <b>Nota:</b> i profili e le rilevazioni sono nel database (non nel browser). Se cambi PC li ritrovi.
-          </div>
-        </div>
-      </div>
-
-      <!-- RIGHT: CONTENUTO -->
-      <div class="card">
-        <div class="hd">
-          <div style="display:flex; flex-direction:column; gap:2px; min-width:0">
-            <h2 id="rightTitle">Accedi per iniziare</h2>
-            <div class="small muted" id="rightSubtitle">Disclaimer → Login → Gestione profili e rilevazioni.</div>
-          </div>
-
-          <div class="controls">
-            <button id="btnNewAssessment" class="primary" type="button" disabled>+ Rilevazione</button>
-            <button id="btnExportJSON" class="ghost" type="button" disabled>Export JSON</button>
-          </div>
-        </div>
-
-        <div class="bd" id="rightPane">
-          <!-- dynamic -->
-          <div class="hint">
-            Effettua il login per visualizzare profili e rilevazioni.
-          </div>
+    <!-- DISCLAIMER MODAL (prima del login) -->
+    <div id="disclaimer-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-content">
+        <h2>Disclaimer</h2>
+        <p>
+          EduFAD è uno strumento educativo/osservativo e non ha finalità cliniche, diagnostiche o terapeutiche.
+          I dati inseriti servono per la pianificazione educativa.
+        </p>
+        <div class="modal-actions">
+          <button id="disclaimer-ack" type="button" class="btn btn-primary">Ho compreso</button>
         </div>
       </div>
     </div>
 
-    <div class="toast" id="toast"></div>
-  </div>
-
-  <!-- DISCLAIMER MODAL -->
-  <div id="disclaimer-modal" class="modal hidden">
-    <div class="modal-content">
-      <h2>Disclaimer</h2>
-      <p class="muted">
-        EduFAD è uno strumento educativo/osservativo e non ha finalità cliniche, diagnostiche o terapeutiche.
-        I dati inseriti servono per la pianificazione educativa.
-      </p>
-      <div class="row tight" style="justify-content:flex-end">
-        <button class="primary" id="disclaimer-ack" type="button">Ho compreso</button>
+    <!-- LOGIN (modal) -->
+    <div id="login-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-content">
+        <h2>Accesso</h2>
+        <form id="login-form">
+          <label>
+            Username
+            <input type="text" id="login-username" autocomplete="username" required />
+          </label>
+          <label>
+            Password
+            <input type="password" id="login-password" autocomplete="current-password" required />
+          </label>
+          <div class="modal-actions">
+            <button type="submit" class="btn btn-primary">Entra</button>
+          </div>
+          <div id="login-error" class="error"></div>
+        </form>
       </div>
     </div>
-  </div>
 
-  <!-- LOGIN MODAL -->
-  <div id="login-modal" class="modal hidden">
-    <div class="modal-content">
-      <h2>Accesso</h2>
+    <!-- APP SHELL (3 colonne stile demo) -->
+    <main id="app-shell" class="app-shell hidden">
+      <div class="shell-grid">
+        <!-- LEFT: PROFILI -->
+        <section class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Profili</div>
+            <button id="btn-new-profile" class="btn btn-ghost" type="button">+ Profilo</button>
+          </div>
 
-      <form id="login-form" class="form">
-        <label>Username
-          <input type="text" id="login-username" required />
-        </label>
+          <div class="panel-body">
+            <input id="profiles-search" class="input" type="text" placeholder="Cerca profilo..." />
+            <div id="profiles-list" class="list"></div>
 
-        <label>Password
-          <input type="password" id="login-password" required />
-        </label>
+            <div class="hint">
+              Nota: i dati sono salvati nel database (server). Se cambi browser/PC li ritrovi facendo login.
+            </div>
+          </div>
+        </section>
 
-        <div class="row tight" style="justify-content:flex-end">
-          <button class="primary" type="submit">Entra</button>
+        <!-- CENTER: PROFILO SELEZIONATO + RILEVAZIONI -->
+        <section class="panel panel-wide">
+          <div class="panel-header">
+            <div class="profile-head">
+              <div class="profile-name" id="selected-profile-name">Seleziona un profilo</div>
+              <div class="profile-meta" id="selected-profile-meta"></div>
+            </div>
+
+            <div class="panel-actions">
+              <button id="btn-new-assessment" class="btn btn-ghost" type="button" disabled>+ Rilevazione</button>
+              <button id="btn-export-json" class="btn btn-ghost" type="button" disabled>Export JSON</button>
+            </div>
+          </div>
+
+          <div class="panel-body">
+            <div class="split">
+              <div class="split-left">
+                <div class="section-title">
+                  Rilevazioni
+                  <span id="assessments-count" class="badge">0</span>
+                </div>
+
+                <div id="assessments-list" class="list"></div>
+              </div>
+
+              <div class="split-right">
+                <!-- spazio libero per eventuali note/riassunti rapidi -->
+                <div class="empty-state" id="center-empty">
+                  Seleziona un profilo per vedere le rilevazioni.
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- RIGHT: DASHBOARD + GRAFICI -->
+        <section class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Dashboard</div>
+            <div class="panel-actions">
+              <span class="badge">Canvas</span>
+            </div>
+          </div>
+
+          <div class="panel-body">
+            <div class="kpi-grid">
+              <div class="kpi">
+                <div class="kpi-value" id="kpi-assessments">0</div>
+                <div class="kpi-label">Rilevazioni</div>
+              </div>
+              <div class="kpi">
+                <div class="kpi-value" id="kpi-avg">—</div>
+                <div class="kpi-label">Supporto medio (ultima)</div>
+              </div>
+              <div class="kpi">
+                <div class="kpi-value" id="kpi-delta">—</div>
+                <div class="kpi-label">Delta vs baseline</div>
+              </div>
+            </div>
+
+            <div class="chart-block">
+              <div class="chart-title">Trend supporto medio (0–3) nel tempo</div>
+              <canvas id="chart-trend" width="420" height="220"></canvas>
+            </div>
+
+            <div class="chart-block">
+              <div class="chart-title">Supporto medio per area (ultima rilevazione)</div>
+              <canvas id="chart-areas" width="420" height="240"></canvas>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- MODAL: CREAZIONE/EDIT PROFILO -->
+    <div id="profile-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-content modal-lg">
+        <h2 id="profile-modal-title">Nuovo profilo</h2>
+
+        <form id="profile-form" class="form">
+          <div class="form-row">
+            <label>
+              Codice
+              <input id="profile-code" type="text" placeholder="Es. A001" required />
+            </label>
+
+            <label>
+              Nome visualizzato
+              <input id="profile-display-name" type="text" placeholder="Es. Ragazzo A" required />
+            </label>
+          </div>
+
+          <div class="form-row">
+            <label>
+              Data di nascita
+              <input id="profile-dob" type="date" required />
+            </label>
+
+            <label>
+              Note
+              <input id="profile-notes" type="text" placeholder="Facoltativo" />
+            </label>
+          </div>
+
+          <div class="modal-actions">
+            <button id="profile-cancel" type="button" class="btn btn-ghost">Annulla</button>
+            <button id="profile-save" type="submit" class="btn btn-primary">Salva profilo</button>
+          </div>
+
+          <div id="profile-error" class="error"></div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL: EDITOR RILEVAZIONE (B) -->
+    <div id="assessment-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-content modal-xl">
+        <div class="modal-head">
+          <div>
+            <div class="modal-title">Editor rilevazione</div>
+            <div class="modal-subtitle" id="assessment-modal-subtitle"></div>
+          </div>
+
+          <div class="modal-head-actions">
+            <span id="assessment-date-pill" class="pill pill-muted">—</span>
+            <button id="assessment-delete" type="button" class="btn btn-danger">Elimina</button>
+            <button id="assessment-close" type="button" class="btn btn-ghost">Chiudi</button>
+          </div>
         </div>
 
-        <div id="login-error" class="error"></div>
-      </form>
-    </div>
-  </div>
+        <!-- Aree cliccabili -->
+        <div class="area-tabs" id="area-tabs"></div>
 
-  <!-- MODAL: NUOVO PROFILO -->
-  <div id="profile-modal" class="modal hidden">
-    <div class="modal-content">
-      <h2>Nuovo profilo</h2>
+        <!-- Contenuti area: qui app.js inserirà i comportamenti -->
+        <div id="area-items" class="area-items"></div>
 
-      <form id="profile-form" class="form">
-        <label>Nome visualizzato
-          <input type="text" id="profile-name" required placeholder="Es. Ragazzo A" />
-        </label>
-
-        <label>Codice
-          <input type="text" id="profile-code" required placeholder="Es. A001" />
-        </label>
-
-        <label>Data di nascita
-          <input type="date" id="profile-dob" required />
-        </label>
-
-        <div class="row tight" style="justify-content:flex-end">
-          <button class="ghost" id="profile-cancel" type="button">Annulla</button>
-          <button class="primary" type="submit">Salva profilo</button>
+        <div class="modal-actions modal-actions-sticky">
+          <button id="assessment-save" type="button" class="btn btn-primary">Salva</button>
         </div>
 
-        <div id="profile-error" class="error"></div>
-      </form>
+        <div id="assessment-error" class="error"></div>
+      </div>
     </div>
-  </div>
 
-  <script src="/app.js"></script>
-</body>
+    <script src="/app.js"></script>
+  </body>
 </html>
