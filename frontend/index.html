@@ -1634,6 +1634,33 @@ function buildDiaryNarrative(assess, profile){
   ensureResponseMap(assess);
   const p = profile || (assess.profileId ? getProfile(assess.profileId) : null);
   const name = p?.name || "L’alunno";
+    // --- PATCH: verbi all'infinito (per evitare "a riconosce") ---
+  function toInfPhrase(label){
+    label = (label || "").trim();
+    if(!label) return "";
+    const parts = label.split(/\s+/);
+    const v = (parts[0] || "").toLowerCase();
+
+    const dict = {
+      "chiede":"chiedere","rispetta":"rispettare","segue":"seguire","avvia":"avviare","mantiene":"mantenere","accetta":"accettare",
+      "riconosce":"riconoscere","associa":"associare","effettua":"effettuare","gestisce":"gestire",
+      "beve":"bere","usa":"usare","utilizza":"utilizzare","completa":"completare","organizza":"organizzare","prepara":"preparare",
+      "controlla":"controllare","comprende":"comprendere","legge":"leggere","scrive":"scrivere","calcola":"calcolare"
+    };
+
+    let inf = dict[v] || "";
+    if(!inf){
+      if(v.endsWith("a")) inf = v.slice(0,-1) + "are";
+      else if(v.endsWith("e")) inf = v.slice(0,-1) + "ere";
+      else if(v.endsWith("i")) inf = v.slice(0,-1) + "ire";
+    }
+    if(!inf) return label.charAt(0).toLowerCase() + label.slice(1);
+
+    const rest = parts.slice(1).join(" ");
+    const out = (inf + (rest ? " " + rest : "")).trim();
+    return out.charAt(0).toLowerCase() + out.slice(1);
+  }
+
 
   function supportVal(r){
     return (r && [0,1,2,3].includes(r.support)) ? r.support : null;
@@ -1682,7 +1709,7 @@ function buildDiaryNarrative(assess, profile){
     paras.push(`Area “${area.name}”.`);
 
     if(good.length){
-      paras.push(`Nel contesto delle attività osservate, il ragazzo dimostra buone competenze in quest’area, riuscendo generalmente a ${join(good)}.`);
+      paras.push(`Nel contesto delle attività osservate, il ragazzo dimostra buone competenze in quest’area, riuscendo generalmente a ${join(good.map(toInfPhrase))}.;
     } else {
       paras.push("In quest’area si osserva un funzionamento ancora in fase di consolidamento, che beneficia della guida dell’adulto.");
     }
